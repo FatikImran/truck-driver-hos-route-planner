@@ -1,0 +1,36 @@
+# Node / React
+node_modules/
+dist/
+.env
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Django / Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+/static/
+/media/
+backend/staticfiles/
+.env.backend
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Temporary testing assets
+new-full-stack-dev-assessment.txt
+view_images.html
+test_drawn_log.png
+grid_reference.png
+grid_marked.png
+grid_marked_log.png
