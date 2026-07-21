@@ -21,7 +21,8 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
-    'truck-driver-hos.up.railway.app',  
+    '.railway.app',  # Allows any Railway subdomain
+    'truck-driver-hos.up.railway.app',
 ]
 
 # Application definition
@@ -94,14 +95,11 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database - Use MySQL on PythonAnywhere
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'yourusername$yourdbname',  # Format: username$dbname
-        'USER': 'yourusername',             # Your PythonAnywhere username
-        'PASSWORD': 'your_mysql_password',  # Set on PythonAnywhere
-        'HOST': 'yourusername.mysql.pythonanywhere-services.com',
-        'PORT': '3306',
-    }
+    'default': dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+        ssl_require=False
+    )
 }
 
 # Password validation
