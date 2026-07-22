@@ -109,7 +109,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         # Date
         draw.text((182, 6), date_obj.strftime("%m"), fill='black', font=bold_font)
         draw.text((222, 6), date_obj.strftime("%d"), fill='black', font=bold_font)
-        draw.text((242, 6), date_obj.strftime("%Y"), fill='black', font=bold_font)
+        draw.text((262, 6), date_obj.strftime("%Y"), fill='black', font=bold_font)
         
         # From/To - adjusted to fit "Dallas" properly
         draw.text((100, 34), from_loc[:30], fill='black', font=font)  # Moved left
@@ -127,7 +127,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         draw.text((305, 89), main_office[:30], fill='black', font=font)   # Adjusted
         
         truck_trailer = carrier_info.get("truck_trailer", "Truck #101 / Trailer #202")
-        draw.text((65, 100), truck_trailer[:30], fill='black', font=font) # Adjusted
+        draw.text((65, 105), truck_trailer[:30], fill='black', font=font) # Adjusted
         
         home_terminal = carrier_info.get("home_terminal", "456 Safety Rd, Dallas, TX")
         draw.text((305, 110), home_terminal[:30], fill='black', font=font) # Adjusted
@@ -145,14 +145,14 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     try:
         # Slightly adjusted grid positions
         x_grid_left = 65  
-        x_grid_right = 460
+        x_grid_right = 457
         grid_width = x_grid_right - x_grid_left
         
         # Adjusted Y positions based on template
         y_off_duty = 190   # Slightly up
         y_sleeper = 206    # Slightly up
         y_driving = 222    # Slightly up
-        y_on_duty = 238    # Slightly up
+        y_on_duty = 245    # Slightly up
         
         status_y_map = {
             "OFF": y_off_duty,
@@ -232,9 +232,9 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     try:
         x_totals = 469
         y_off_duty = 197
-        y_sleeper = 217
-        y_driving = 227
-        y_on_duty = 244
+        y_sleeper = 207
+        y_driving = 230
+        y_on_duty = 246
         
         draw.text((x_totals, y_off_duty - 6), f"{totals['OFF']:.1f}", fill='black', font=bold_font)
         draw.text((x_totals, y_sleeper - 6), f"{totals['SB']:.1f}", fill='black', font=bold_font)
@@ -281,9 +281,9 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         recap_b = carrier_info.get("recap_b", max(0.0, 70.0 - recap_a))
         
         # Recap fields - adjusted based on template
-        draw.text((85, 440), f"{on_duty_today:.1f}", fill='black', font=font)
-        draw.text((155, 440), f"{recap_a:.1f}", fill='black', font=font)
-        draw.text((215, 440), f"{recap_b:.1f}", fill='black', font=font)
+        draw.text((80, 440), f"{on_duty_today:.1f}", fill='black', font=font)
+        draw.text((157, 440), f"{recap_a:.1f}", fill='black', font=font)
+        draw.text((180, 440), f"{recap_b:.1f}", fill='black', font=font)
         
     except Exception as e:
         logger.error(f"Error drawing recap: {e}")
