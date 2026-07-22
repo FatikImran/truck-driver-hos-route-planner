@@ -2,6 +2,7 @@ import os
 import base64
 import datetime
 from io import BytesIO
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 def time_to_hours(dt):
@@ -13,15 +14,36 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     Draw HOS lines, text fields, remarks, and recap table on blank-paper-log.png.
     Returns the image as a base64 encoded PNG string.
     """
-    # Load template image
+    # =========================================================================
+    # LOAD TEMPLATE IMAGE
+    # =========================================================================
     try:
-        from pathlib import Path
-        base_path = Path(__file__).resolve().parent.parent.parent
-        template_path = os.path.join(base_path, 'blank-paper-log.png')
-        if not os.path.exists(template_path):
-            template_path = 'blank-paper-log.png'
-        img = Image.open(template_path).convert('RGB')
-    except Exception:
+        # Get the directory where this file is located
+        current_dir = Path(__file__).resolve().parent
+        
+        # Look for template in multiple locations
+        possible_paths = [
+            current_dir / 'templates' / 'blank-paper-log.png',  # api/templates/
+            current_dir.parent / 'blank-paper-log.png',         # backend root
+            current_dir / 'blank-paper-log.png',                # api folder
+            Path('blank-paper-log.png'),                        # current working directory
+        ]
+        
+        template_path = None
+        for path in possible_paths:
+            if path.exists():
+                template_path = path
+                break
+        
+        if template_path:
+            img = Image.open(template_path).convert('RGB')
+            print(f"Loaded template from: {template_path}")
+        else:
+            print("Template not found, creating blank image")
+            img = Image.new('RGB', (513, 518), color='white')
+            
+    except Exception as e:
+        print(f"Error loading template: {e}")
         img = Image.new('RGB', (513, 518), color='white')
         
     draw = ImageDraw.Draw(img)

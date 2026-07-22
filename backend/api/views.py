@@ -89,6 +89,12 @@ def route_planner(request):
         today = datetime.date.today()
         start_time = datetime.datetime.combine(today, datetime.time(8, 0))
 
+    # Add this to ensure timezone awareness if needed
+    if start_time and start_time.tzinfo is None:
+        # Make it timezone-aware if your system expects it
+        import pytz
+        start_time = pytz.UTC.localize(start_time)
+
     # Carrier Details (optional with defaults)
     carrier_info = {
         "carrier_name": data.get("carrier_name", "").strip() or "Spotter Logistics LLC",
