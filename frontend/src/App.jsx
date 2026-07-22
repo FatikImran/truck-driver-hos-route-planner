@@ -182,7 +182,10 @@ function App() {
 
     try {
       // POST request to Django backend
-      const response = await fetch('http://localhost:8000/api/route', {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      
+      // POST request to Django backend
+      const response = await fetch(`${API_URL}/api/route`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
