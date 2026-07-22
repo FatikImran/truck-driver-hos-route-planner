@@ -107,7 +107,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     try:
         # Date
-        draw.text((168, 0), date_obj.strftime("%m"), fill='black', font=bold_font)
+        draw.text((167, 0), date_obj.strftime("%m"), fill='black', font=bold_font)
         draw.text((202, 0), date_obj.strftime("%d"), fill='black', font=bold_font)
         draw.text((230, 0), date_obj.strftime("%Y"), fill='black', font=bold_font)
         
