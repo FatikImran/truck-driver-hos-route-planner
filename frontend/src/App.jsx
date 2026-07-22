@@ -9,16 +9,14 @@ function App() {
   // ============================================
   // THEME STATE
   // ============================================
-  const [theme, setTheme] = useState('light'); // 'light' | 'dark'
+  const [theme, setTheme] = useState('light');
 
-  // Load theme from localStorage on mount
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') || 'light';
     setTheme(savedTheme);
     document.documentElement.setAttribute('data-theme', savedTheme);
   }, []);
 
-  // Toggle theme
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
@@ -63,26 +61,13 @@ function App() {
   const markerLayersRef = useRef([]);
 
   // ============================================
-  // MAP INITIALIZATION
+  // REDRAW ROUTE FUNCTION
   // ============================================
-  useEffect(() => {
-    if (mapContainerRef.current && !mapInstanceRef.current) {
-      const L = window.L;
-      if (L) {
-        mapInstanceRef.current = L.map(mapContainerRef.current).setView([39.8283, -98.5795], 4);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors'
-        }).addTo(mapInstanceRef.current);
-      }
-    }
-  }, [activeTab]);
-
-  // Redraw Route and Markers
-  useEffect(() => {
+  const redrawRoute = () => {
     const L = window.L;
     if (!L || !mapInstanceRef.current || !result) return;
 
+    // Clear existing layers
     pathLayersRef.current.forEach(layer => layer.remove());
     pathLayersRef.current = [];
     markerLayersRef.current.forEach(layer => layer.remove());
@@ -99,6 +84,7 @@ function App() {
       });
     };
 
+    // Draw Leg 1
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
       const polyline = L.polyline(result.route.leg1.path, {
         color: '#06b6d4',
@@ -110,6 +96,7 @@ function App() {
       result.route.leg1.path.forEach(coord => bounds.push(coord));
     }
 
+    // Draw Leg 2
     if (result.route.leg2.path && result.route.leg2.path.length > 0) {
       const polyline = L.polyline(result.route.leg2.path, {
         color: '#8b5cf6',
@@ -122,6 +109,7 @@ function App() {
       result.route.leg2.path.forEach(coord => bounds.push(coord));
     }
 
+    // Add Markers
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
       const startCoord = result.route.leg1.path[0];
       const startMarker = L.marker(startCoord, {
@@ -156,7 +144,99 @@ function App() {
     if (bounds.length > 0) {
       mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
     }
-  }, [result, activeTab]);
+  };
+
+  // ============================================
+  // INITIALIZE MAP
+  // ============================================
+  const initMap = () => {
+    if (mapContainerRef.current && !mapInstanceRef.current) {
+      const L = window.L;
+      if (L) {
+        mapInstanceRef.current = L.map(mapContainerRef.current, {
+          center: [39.8283, -98.5795],
+          zoom: 4,
+          fadeAnimation: true,
+          zoomAnimation: true,
+          markerZoomAnimation: true
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        }).addTo(mapInstanceRef.current);
+
+        // Force a resize after initialization
+        setTimeout(() => {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.invalidateSize();
+          }
+        }, 200);
+
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // ============================================
+  // MAP EFFECTS
+  // ============================================
+
+  // Initialize map when component mounts
+  useEffect(() => {
+    // Check if map container exists and has dimensions
+    const checkAndInit = () => {
+      if (mapContainerRef.current && mapContainerRef.current.offsetParent !== null) {
+        const initialized = initMap();
+        if (initialized && result) {
+          // If map was just initialized and we have results, redraw route
+          setTimeout(redrawRoute, 300);
+        }
+      }
+    };
+
+    // Try immediately, then after a short delay
+    checkAndInit();
+
+    const timeoutId = setTimeout(checkAndInit, 300);
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  // Redraw route when results change
+  useEffect(() => {
+    if (result && mapInstanceRef.current) {
+      // Small delay to ensure map is ready
+      setTimeout(redrawRoute, 200);
+    }
+  }, [result]);
+
+  // Force map refresh when switching to map tab
+  useEffect(() => {
+    if (activeTab === 'map' && result) {
+      // Initialize map if not already initialized
+      const initialized = initMap();
+
+      // Redraw route after a short delay
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+          redrawRoute();
+        }
+      }, 300);
+    }
+  }, [activeTab, result]);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // ============================================
   // HANDLE SUBMIT
@@ -212,6 +292,7 @@ function App() {
         setResult(data);
         setSelectedDayIndex(0);
         setActiveTab('map');
+        // Map will be redrawn by the useEffect
       } else {
         setError(data.error || 'Failed to simulate route and logs.');
       }
@@ -240,9 +321,7 @@ function App() {
   // ============================================
   return (
     <div className="app-container">
-      {/* ============================================
-          HEADER WITH THEME TOGGLE
-          ============================================ */}
+      {/* Header */}
       <header className="header glass-panel animate-fade-in">
         <div>
           <h1>
@@ -296,14 +375,10 @@ function App() {
         </div>
       </header>
 
-      {/* ============================================
-          MAIN GRID
-          ============================================ */}
+      {/* Main Grid */}
       <div className="dashboard-grid">
 
-        {/* ============================================
-            LEFT: INPUT PANEL
-            ============================================ */}
+        {/* Left: Input Panel */}
         <section className="glass-panel animate-slide-in" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <h2 style={{ fontSize: '18px', fontWeight: '700', borderBottom: '1px solid var(--border-glass)', paddingBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Route size={18} style={{ color: 'var(--color-primary)' }} />
@@ -311,7 +386,6 @@ function App() {
           </h2>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
             {/* Location Fields */}
             <div>
               <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Current Location</label>
@@ -409,7 +483,7 @@ function App() {
               </div>
             </div>
 
-            {/* Collapsible Carrier Details */}
+            {/* Carrier Details */}
             <details style={{ marginTop: '4px' }}>
               <summary style={{ fontSize: '13px', fontWeight: '600', color: 'var(--color-primary)', cursor: 'pointer', outline: 'none', userSelect: 'none' }}>
                 Carrier & Truck Details
@@ -464,9 +538,7 @@ function App() {
           </form>
         </section>
 
-        {/* ============================================
-            RIGHT: OUTPUT DASHBOARD
-            ============================================ */}
+        {/* Right: Output Dashboard */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
           {/* Welcome Screen */}
