@@ -1,5 +1,7 @@
 import datetime
 import json
+import logging
+import traceback
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -9,6 +11,8 @@ from .routing_helper import geocode_location, get_route_details
 from .hos_engine import run_trip_simulation, partition_activities_into_days
 from .log_drawer import draw_daily_log
 
+logger = logging.getLogger(__name__)
+
 def api_root(request):
     return JsonResponse({
         "message": "API is working!",
@@ -16,9 +20,6 @@ def api_root(request):
             "route_planner": "/api/route",
         }
     })
-
-import logging
-logger = logging.getLogger(__name__)
 
 @csrf_exempt
 @require_POST
@@ -91,9 +92,11 @@ def route_planner(request):
 
     # Add this to ensure timezone awareness if needed
     if start_time and start_time.tzinfo is None:
-        # Make it timezone-aware if your system expects it
-        import pytz
-        start_time = pytz.UTC.localize(start_time)
+        try:
+            import pytz
+            start_time = pytz.UTC.localize(start_time)
+        except:
+            pass
 
     # Carrier Details (optional with defaults)
     carrier_info = {
@@ -158,87 +161,98 @@ def route_planner(request):
     days_response = []
     
     for idx, day in enumerate(day_partitions):
-        day_date = day["date"]
-        day_activities = day["activities"]
-        
-        # Calculate daily status totals
-        totals = {"OFF": 0.0, "SB": 0.0, "D": 0.0, "ON": 0.0}
-        for act in day_activities:
-            # Clamp duration to day boundaries if needed, already done in partition
-            totals[act["status"]] += act["duration_hours"]
-
-        # Calculate daily distance
-        miles_driven = totals["D"] * speed_mph
-        
-        # Determine from/to location for the day
-        from_loc_day = day_activities[0]["location"] if day_activities else display_curr
-        to_loc_day = day_activities[-1]["location"] if day_activities else display_curr
-        
-        # On duty hours today
-        on_duty_today = totals["D"] + totals["ON"]
-        
-        # Add to history and calculate rolling recap
-        # Recap A: Total on duty hours last 7 days including today
-        # Recap B: Available tomorrow (70 - A)
-        daily_history.append(on_duty_today)
-        # Sum last 7 elements of daily_history (which includes today)
-        recap_a = sum(daily_history[-7:])
-        recap_b = max(0.0, 70.0 - recap_a)
-        
-        carrier_info["recap_a"] = recap_a
-        carrier_info["recap_b"] = recap_b
-        
-        # Draw the log sheet PNG
         try:
-            image_b64 = draw_daily_log(
-                day_activities=day_activities,
-                date_obj=day_date,
-                carrier_info=carrier_info,
-                from_loc=from_loc_day,
-                to_loc=to_loc_day,
-                total_miles=miles_driven,
-                day_index=idx + 1
-            )
-        except Exception as e:
-            logger.exception(f"Drawing log sheet failed for day {idx+1}")
-            image_b64 = ""
+            day_date = day["date"]
+            day_activities = day["activities"]
+            
+            # Calculate daily status totals
+            totals = {"OFF": 0.0, "SB": 0.0, "D": 0.0, "ON": 0.0}
+            for act in day_activities:
+                # Clamp duration to day boundaries if needed, already done in partition
+                totals[act["status"]] += act["duration_hours"]
 
-        # Format activities for UI timeline
-        formatted_activities = []
-        for act in day_activities:
-            formatted_activities.append({
-                "start": act["start"].strftime("%I:%M %p"),
-                "end": act["end"].strftime("%I:%M %p"),
-                "duration": f"{act['duration_hours']:.2f} hrs",
-                "status": act["status"],
-                "description": act["description"],
-                "location": act["location"]
+            # Calculate daily distance
+            miles_driven = totals["D"] * speed_mph
+            
+            # Determine from/to location for the day
+            from_loc_day = day_activities[0]["location"] if day_activities else display_curr
+            to_loc_day = day_activities[-1]["location"] if day_activities else display_curr
+            
+            # On duty hours today
+            on_duty_today = totals["D"] + totals["ON"]
+            
+            # Add to history and calculate rolling recap
+            # Recap A: Total on duty hours last 7 days including today
+            # Recap B: Available tomorrow (70 - A)
+            daily_history.append(on_duty_today)
+            # Sum last 7 elements of daily_history (which includes today)
+            recap_a = sum(daily_history[-7:])
+            recap_b = max(0.0, 70.0 - recap_a)
+            
+            carrier_info["recap_a"] = recap_a
+            carrier_info["recap_b"] = recap_b
+            
+            # Draw the log sheet PNG
+            try:
+                logger.info(f"Drawing log for day {idx+1}")
+                image_b64 = draw_daily_log(
+                    day_activities=day_activities,
+                    date_obj=day_date,
+                    carrier_info=carrier_info,
+                    from_loc=from_loc_day,
+                    to_loc=to_loc_day,
+                    total_miles=miles_driven,
+                    day_index=idx + 1
+                )
+                logger.info(f"Log drawing successful for day {idx+1}")
+            except Exception as e:
+                logger.error(f"Drawing log sheet failed for day {idx+1}: {str(e)}")
+                logger.error(traceback.format_exc())
+                image_b64 = ""
+
+            # Format activities for UI timeline
+            formatted_activities = []
+            for act in day_activities:
+                formatted_activities.append({
+                    "start": act["start"].strftime("%I:%M %p"),
+                    "end": act["end"].strftime("%I:%M %p"),
+                    "duration": f"{act['duration_hours']:.2f} hrs",
+                    "status": act["status"],
+                    "description": act["description"],
+                    "location": act["location"]
+                })
+
+            days_response.append({
+                "day_index": idx + 1,
+                "date": day_date.strftime("%Y-%m-%d"),
+                "totals": {
+                    "off_duty": round(totals["OFF"], 2),
+                    "sleeper": round(totals["SB"], 2),
+                    "driving": round(totals["D"], 2),
+                    "on_duty": round(totals["ON"], 2),
+                },
+                "miles_driven": round(miles_driven, 1),
+                "from_location": from_loc_day,
+                "to_location": to_loc_day,
+                "recap": {
+                    "hours_on_duty_today": round(on_duty_today, 2),
+                    "on_duty_last_7_days": round(recap_a, 2),
+                    "available_tomorrow": round(recap_b, 2),
+                },
+                "remarks": [
+                    f"{act['start'].strftime('%I:%M %p')} - {act['description']} ({act['location']})"
+                    for act in day_activities if act["description"] != "Off Duty / Rest"
+                ],
+                "activities": formatted_activities,
+                "image_b64": image_b64
             })
-
-        days_response.append({
-            "day_index": idx + 1,
-            "date": day_date.strftime("%Y-%m-%d"),
-            "totals": {
-                "off_duty": round(totals["OFF"], 2),
-                "sleeper": round(totals["SB"], 2),
-                "driving": round(totals["D"], 2),
-                "on_duty": round(totals["ON"], 2),
-            },
-            "miles_driven": round(miles_driven, 1),
-            "from_location": from_loc_day,
-            "to_location": to_loc_day,
-            "recap": {
-                "hours_on_duty_today": round(on_duty_today, 2),
-                "on_duty_last_7_days": round(recap_a, 2),
-                "available_tomorrow": round(recap_b, 2),
-            },
-            "remarks": [
-                f"{act['start'].strftime('%I:%M %p')} - {act['description']} ({act['location']})"
-                for act in day_activities if act["description"] != "Off Duty / Rest"
-            ],
-            "activities": formatted_activities,
-            "image_b64": image_b64
-        })
+        except Exception as e:
+            logger.error(f"Error processing day {idx+1}: {str(e)}")
+            logger.error(traceback.format_exc())
+            return JsonResponse({
+                "success": False,
+                "error": f"Error processing day {idx+1}: {str(e)}"
+            }, status=500)
 
     # Prepare complete global trip timeline
     global_timeline = []
