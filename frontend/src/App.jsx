@@ -59,13 +59,17 @@ function App() {
   const mapInstanceRef = useRef(null);
   const pathLayersRef = useRef([]);
   const markerLayersRef = useRef([]);
+  const isMapInitializedRef = useRef(false);
 
   // ============================================
   // REDRAW ROUTE FUNCTION
   // ============================================
   const redrawRoute = () => {
     const L = window.L;
-    if (!L || !mapInstanceRef.current || !result) return;
+    if (!L || !mapInstanceRef.current || !result) {
+      console.log('Cannot redraw: missing map or result');
+      return;
+    }
 
     // Clear existing layers
     pathLayersRef.current.forEach(layer => layer.remove());
@@ -144,38 +148,79 @@ function App() {
     if (bounds.length > 0) {
       mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
     }
+
+    console.log('Route redrawn successfully');
   };
 
   // ============================================
   // INITIALIZE MAP
   // ============================================
   const initMap = () => {
-    if (mapContainerRef.current && !mapInstanceRef.current) {
-      const L = window.L;
-      if (L) {
-        mapInstanceRef.current = L.map(mapContainerRef.current, {
-          center: [39.8283, -98.5795],
-          zoom: 4,
-          fadeAnimation: true,
-          zoomAnimation: true,
-          markerZoomAnimation: true
-        });
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors'
-        }).addTo(mapInstanceRef.current);
-
-        // Force a resize after initialization
-        setTimeout(() => {
-          if (mapInstanceRef.current) {
-            mapInstanceRef.current.invalidateSize();
-          }
-        }, 200);
-
-        return true;
-      }
+    if (!mapContainerRef.current) {
+      console.log('Map container not ready');
+      return false;
     }
-    return false;
+
+    if (isMapInitializedRef.current) {
+      console.log('Map already initialized');
+      return true;
+    }
+
+    const L = window.L;
+    if (!L) {
+      console.log('Leaflet not loaded');
+      return false;
+    }
+
+    try {
+      mapInstanceRef.current = L.map(mapContainerRef.current, {
+        center: [39.8283, -98.5795],
+        zoom: 4,
+        fadeAnimation: true,
+        zoomAnimation: true,
+        markerZoomAnimation: true
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(mapInstanceRef.current);
+
+      isMapInitializedRef.current = true;
+      console.log('Map initialized successfully');
+
+      // Force a resize after initialization
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+          if (result) {
+            redrawRoute();
+          }
+        }
+      }, 300);
+
+      return true;
+    } catch (error) {
+      console.error('Error initializing map:', error);
+      return false;
+    }
+  };
+
+  // ============================================
+  // REFRESH MAP (called when switching to map tab)
+  // ============================================
+  const refreshMap = () => {
+    if (mapInstanceRef.current) {
+      console.log('Refreshing map');
+      mapInstanceRef.current.invalidateSize();
+
+      // If we have results, redraw the route
+      if (result) {
+        setTimeout(redrawRoute, 200);
+      }
+    } else {
+      // Try to initialize if not already
+      initMap();
+    }
   };
 
   // ============================================
@@ -184,47 +229,31 @@ function App() {
 
   // Initialize map when component mounts
   useEffect(() => {
-    // Check if map container exists and has dimensions
-    const checkAndInit = () => {
-      if (mapContainerRef.current && mapContainerRef.current.offsetParent !== null) {
-        const initialized = initMap();
-        if (initialized && result) {
-          // If map was just initialized and we have results, redraw route
-          setTimeout(redrawRoute, 300);
-        }
-      }
-    };
+    // Wait for DOM to render
+    const timeoutId = setTimeout(() => {
+      initMap();
+    }, 500);
 
-    // Try immediately, then after a short delay
-    checkAndInit();
-
-    const timeoutId = setTimeout(checkAndInit, 300);
     return () => clearTimeout(timeoutId);
   }, []);
 
   // Redraw route when results change
   useEffect(() => {
-    if (result && mapInstanceRef.current) {
-      // Small delay to ensure map is ready
-      setTimeout(redrawRoute, 200);
+    if (result && isMapInitializedRef.current && mapInstanceRef.current) {
+      setTimeout(redrawRoute, 300);
     }
   }, [result]);
 
   // Force map refresh when switching to map tab
   useEffect(() => {
-    if (activeTab === 'map' && result) {
-      // Initialize map if not already initialized
-      const initialized = initMap();
-
-      // Redraw route after a short delay
-      setTimeout(() => {
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.invalidateSize();
-          redrawRoute();
-        }
-      }, 300);
+    if (activeTab === 'map') {
+      // Small delay to ensure the container is visible
+      const timeoutId = setTimeout(() => {
+        refreshMap();
+      }, 200);
+      return () => clearTimeout(timeoutId);
     }
-  }, [activeTab, result]);
+  }, [activeTab]);
 
   // Handle window resize
   useEffect(() => {
