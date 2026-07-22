@@ -9,6 +9,14 @@ from .routing_helper import geocode_location, get_route_details
 from .hos_engine import run_trip_simulation, partition_activities_into_days
 from .log_drawer import draw_daily_log
 
+def api_root(request):
+    return JsonResponse({
+        "message": "API is working!",
+        "endpoints": {
+            "route_planner": "/api/route",
+        }
+    })
+
 import logging
 logger = logging.getLogger(__name__)
 

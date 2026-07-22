@@ -16,8 +16,20 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.http import JsonResponse
+
+# A simple view for the root URL
+def root_view(request):
+    return JsonResponse({
+        "message": "Welcome to the Truck Driver HOS & Route Planner API",
+        "endpoints": {
+            "admin": "/admin/",
+            "api": "/api/",
+        }
+    })
 
 urlpatterns = [
+    path('', root_view),  # This handles the root URL "/"
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
 ]
