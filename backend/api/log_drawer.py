@@ -107,30 +107,30 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     try:
         # Date
-        draw.text((198, 12), date_obj.strftime("%m"), fill='black', font=bold_font)
-        draw.text((232, 12), date_obj.strftime("%d"), fill='black', font=bold_font)
-        draw.text((260, 12), date_obj.strftime("%Y"), fill='black', font=bold_font)
+        draw.text((168, 0), date_obj.strftime("%m"), fill='black', font=bold_font)
+        draw.text((202, 0), date_obj.strftime("%d"), fill='black', font=bold_font)
+        draw.text((230, 0), date_obj.strftime("%Y"), fill='black', font=bold_font)
         
         # From/To - adjusted to fit "Dallas" properly
-        draw.text((50, 44), from_loc[:30], fill='black', font=font)  # Moved left
-        draw.text((270, 44), to_loc[:30], fill='black', font=font)   # Adjusted
+        draw.text((100, 24), from_loc[:30], fill='black', font=font)  # Moved left
+        draw.text((275, 24), to_loc[:30], fill='black', font=font)   # Adjusted
         
         # Total Miles - adjusted for better alignment
-        draw.text((35, 75), f"{total_miles:.0f}", fill='black', font=font)
-        draw.text((115, 75), f"{total_miles:.0f}", fill='black', font=font)
+        draw.text((65, 75), f"{total_miles:.0f}", fill='black', font=font)
+        draw.text((145, 75), f"{total_miles:.0f}", fill='black', font=font)
         
         # Carrier Info
         carrier_name = carrier_info.get("carrier_name", "Spotter Logistics LLC")
         draw.text((305, 65), carrier_name[:30], fill='black', font=font)  # Moved up
         
         main_office = carrier_info.get("main_office", "123 Main St, Dallas, TX")
-        draw.text((305, 83), main_office[:30], fill='black', font=font)   # Adjusted
+        draw.text((305, 89), main_office[:30], fill='black', font=font)   # Adjusted
         
         truck_trailer = carrier_info.get("truck_trailer", "Truck #101 / Trailer #202")
-        draw.text((35, 113), truck_trailer[:30], fill='black', font=font) # Adjusted
+        draw.text((65, 100), truck_trailer[:30], fill='black', font=font) # Adjusted
         
         home_terminal = carrier_info.get("home_terminal", "456 Safety Rd, Dallas, TX")
-        draw.text((305, 103), home_terminal[:30], fill='black', font=font) # Adjusted
+        draw.text((305, 113), home_terminal[:30], fill='black', font=font) # Adjusted
         
     except Exception as e:
         logger.error(f"Error drawing header: {e}")
@@ -230,11 +230,11 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     # The "Total Hours" column is at the far right, approximately x=483
     try:
-        x_totals = 483  # Slightly right
-        y_off_duty = 190
-        y_sleeper = 206
-        y_driving = 222
-        y_on_duty = 238
+        x_totals = 460  # Slightly right
+        y_off_duty = 197
+        y_sleeper = 217
+        y_driving = 227
+        y_on_duty = 244
         
         draw.text((x_totals, y_off_duty - 6), f"{totals['OFF']:.1f}", fill='black', font=bold_font)
         draw.text((x_totals, y_sleeper - 6), f"{totals['SB']:.1f}", fill='black', font=bold_font)
