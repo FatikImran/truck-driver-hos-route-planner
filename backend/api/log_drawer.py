@@ -111,26 +111,27 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         draw.text((232, 12), date_obj.strftime("%d"), fill='black', font=bold_font)
         draw.text((260, 12), date_obj.strftime("%Y"), fill='black', font=bold_font)
         
-        # From/To
-        draw.text((60, 44), from_loc[:35], fill='black', font=font)
-        draw.text((280, 44), to_loc[:35], fill='black', font=font)
+        # From/To - adjusted to fit "Dallas" properly
+        draw.text((50, 44), from_loc[:30], fill='black', font=font)  # Moved left
+        draw.text((270, 44), to_loc[:30], fill='black', font=font)   # Adjusted
         
-        # Miles
-        draw.text((35, 82), f"{total_miles:.0f}", fill='black', font=font)
-        draw.text((115, 82), f"{total_miles:.0f}", fill='black', font=font)
+        # Total Miles - adjusted for better alignment
+        draw.text((35, 75), f"{total_miles:.0f}", fill='black', font=font)
+        draw.text((115, 75), f"{total_miles:.0f}", fill='black', font=font)
         
         # Carrier Info
         carrier_name = carrier_info.get("carrier_name", "Spotter Logistics LLC")
-        draw.text((305, 72), carrier_name[:30], fill='black', font=font)
+        draw.text((305, 65), carrier_name[:30], fill='black', font=font)  # Moved up
         
         main_office = carrier_info.get("main_office", "123 Main St, Dallas, TX")
-        draw.text((305, 92), main_office[:30], fill='black', font=font)
+        draw.text((305, 83), main_office[:30], fill='black', font=font)   # Adjusted
         
         truck_trailer = carrier_info.get("truck_trailer", "Truck #101 / Trailer #202")
-        draw.text((35, 118), truck_trailer[:30], fill='black', font=font)
+        draw.text((35, 113), truck_trailer[:30], fill='black', font=font) # Adjusted
         
         home_terminal = carrier_info.get("home_terminal", "456 Safety Rd, Dallas, TX")
-        draw.text((305, 112), home_terminal[:30], fill='black', font=font)
+        draw.text((305, 103), home_terminal[:30], fill='black', font=font) # Adjusted
+        
     except Exception as e:
         logger.error(f"Error drawing header: {e}")
 
@@ -142,20 +143,17 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # X: left edge ~x=60, right edge ~x=472  (before "Total Hours" column)
     # The grid has 24 columns (one per hour)
     try:
-        x_grid_left = 60
+        # Slightly adjusted grid positions
+        x_grid_left = 55  # Moved left slightly
         x_grid_right = 472
         grid_width = x_grid_right - x_grid_left
-
-        # Y positions for the CENTER of each status row:
-        # 1. Off Duty:      y ~ 192
-        # 2. Sleeper Berth:  y ~ 208
-        # 3. Driving:        y ~ 224
-        # 4. On Duty:        y ~ 240
-        y_off_duty = 192
-        y_sleeper = 208
-        y_driving = 224
-        y_on_duty = 240
-
+        
+        # Adjusted Y positions based on template
+        y_off_duty = 190   # Slightly up
+        y_sleeper = 206    # Slightly up
+        y_driving = 222    # Slightly up
+        y_on_duty = 238    # Slightly up
+        
         status_y_map = {
             "OFF": y_off_duty,
             "SB": y_sleeper,
@@ -232,15 +230,19 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     # The "Total Hours" column is at the far right, approximately x=483
     try:
-        x_totals = 483
-        draw.text((x_totals, 186), f"{totals['OFF']:.1f}", fill='black', font=bold_font)
-        draw.text((x_totals, 202), f"{totals['SB']:.1f}", fill='black', font=bold_font)
-        draw.text((x_totals, 218), f"{totals['D']:.1f}", fill='black', font=bold_font)
-        draw.text((x_totals, 234), f"{totals['ON']:.1f}", fill='black', font=bold_font)
-
-        # Total of all hours (should be 24.0)
+        x_totals = 483  # Slightly right
+        y_off_duty = 190
+        y_sleeper = 206
+        y_driving = 222
+        y_on_duty = 238
+        
+        draw.text((x_totals, y_off_duty - 6), f"{totals['OFF']:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, y_sleeper - 6), f"{totals['SB']:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, y_driving - 6), f"{totals['D']:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, y_on_duty - 6), f"{totals['ON']:.1f}", fill='black', font=bold_font)
+        
         grand_total = sum(totals.values())
-        draw.text((x_totals, 250), f"{grand_total:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, 254), f"{grand_total:.1f}", fill='black', font=bold_font)
     except Exception as e:
         logger.error(f"Error drawing totals: {e}")
 
@@ -249,9 +251,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     # "Remarks" section starts around y=263. We'll draw our remarks below y=275
     try:
-        y_remark = 280
-        
-        # Filter to show only meaningful status changes (not filler off-duty)
+        y_remark = 275  # Slightly up
         remark_lines = []
         for act in day_activities:
             desc = act["description"]
@@ -260,13 +260,12 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             start_str = act["start"].strftime("%I:%M %p")
             loc = act["location"]
             remark_lines.append(f"{start_str} - {desc} ({loc})")
-
-        # Draw remarks in two columns to fit the space
-        col_x = 18
+        
+        col_x = 15  # Moved left
         for idx, remark in enumerate(remark_lines[:14]):
             if idx == 7:
-                col_x = 265
-                y_remark = 280
+                col_x = 262  # Moved left
+                y_remark = 275
             draw.text((col_x, y_remark), remark[:42], fill='black', font=font_sm)
             y_remark += 10
     except Exception as e:
@@ -278,17 +277,14 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # "Recap" area is at the very bottom of the form
     try:
         on_duty_today = totals["D"] + totals["ON"]
-        
-        # On duty hours today
-        draw.text((85, 442), f"{on_duty_today:.1f}", fill='black', font=font)
-        
-        # Recap A: total on duty last 7 days
         recap_a = carrier_info.get("recap_a", on_duty_today)
-        draw.text((155, 442), f"{recap_a:.1f}", fill='black', font=font)
-        
-        # Recap B: hours available tomorrow (70 - A)
         recap_b = carrier_info.get("recap_b", max(0.0, 70.0 - recap_a))
-        draw.text((215, 442), f"{recap_b:.1f}", fill='black', font=font)
+        
+        # Recap fields - adjusted based on template
+        draw.text((85, 440), f"{on_duty_today:.1f}", fill='black', font=font)
+        draw.text((155, 440), f"{recap_a:.1f}", fill='black', font=font)
+        draw.text((215, 440), f"{recap_b:.1f}", fill='black', font=font)
+        
     except Exception as e:
         logger.error(f"Error drawing recap: {e}")
 
