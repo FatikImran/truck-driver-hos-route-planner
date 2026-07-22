@@ -145,7 +145,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     try:
         # Slightly adjusted grid positions
         x_grid_left = 65  
-        x_grid_right = 457
+        x_grid_right = 456
         grid_width = x_grid_right - x_grid_left
         
         # Adjusted Y positions based on template
@@ -232,7 +232,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     try:
         x_totals = 469
         y_off_duty = 198
-        y_sleeper = 207
+        y_sleeper = 212
         y_driving = 230
         y_on_duty = 246
         
@@ -283,7 +283,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         # Recap fields - adjusted based on template
         draw.text((80, 440), f"{on_duty_today:.1f}", fill='black', font=font)
         draw.text((157, 440), f"{recap_a:.1f}", fill='black', font=font)
-        draw.text((180, 440), f"{recap_b:.1f}", fill='black', font=font)
+        draw.text((206, 440), f"{recap_b:.1f}", fill='black', font=font)
         
     except Exception as e:
         logger.error(f"Error drawing recap: {e}")
