@@ -107,17 +107,17 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     try:
         # Date
-        draw.text((167, 0), date_obj.strftime("%m"), fill='black', font=bold_font)
-        draw.text((202, 0), date_obj.strftime("%d"), fill='black', font=bold_font)
-        draw.text((230, 0), date_obj.strftime("%Y"), fill='black', font=bold_font)
+        draw.text((182, 6), date_obj.strftime("%m"), fill='black', font=bold_font)
+        draw.text((222, 6), date_obj.strftime("%d"), fill='black', font=bold_font)
+        draw.text((242, 6), date_obj.strftime("%Y"), fill='black', font=bold_font)
         
         # From/To - adjusted to fit "Dallas" properly
-        draw.text((100, 24), from_loc[:30], fill='black', font=font)  # Moved left
-        draw.text((275, 24), to_loc[:30], fill='black', font=font)   # Adjusted
+        draw.text((100, 34), from_loc[:30], fill='black', font=font)  # Moved left
+        draw.text((275, 34), to_loc[:30], fill='black', font=font)   # Adjusted
         
         # Total Miles - adjusted for better alignment
         draw.text((65, 75), f"{total_miles:.0f}", fill='black', font=font)
-        draw.text((145, 75), f"{total_miles:.0f}", fill='black', font=font)
+        draw.text((165, 75), f"{total_miles:.0f}", fill='black', font=font)
         
         # Carrier Info
         carrier_name = carrier_info.get("carrier_name", "Spotter Logistics LLC")
@@ -130,7 +130,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         draw.text((65, 100), truck_trailer[:30], fill='black', font=font) # Adjusted
         
         home_terminal = carrier_info.get("home_terminal", "456 Safety Rd, Dallas, TX")
-        draw.text((305, 113), home_terminal[:30], fill='black', font=font) # Adjusted
+        draw.text((305, 110), home_terminal[:30], fill='black', font=font) # Adjusted
         
     except Exception as e:
         logger.error(f"Error drawing header: {e}")
@@ -144,8 +144,8 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # The grid has 24 columns (one per hour)
     try:
         # Slightly adjusted grid positions
-        x_grid_left = 55  # Moved left slightly
-        x_grid_right = 472
+        x_grid_left = 65  
+        x_grid_right = 460
         grid_width = x_grid_right - x_grid_left
         
         # Adjusted Y positions based on template
@@ -230,7 +230,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # =========================================================================
     # The "Total Hours" column is at the far right, approximately x=483
     try:
-        x_totals = 460  # Slightly right
+        x_totals = 469
         y_off_duty = 197
         y_sleeper = 217
         y_driving = 227
