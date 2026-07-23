@@ -791,46 +791,57 @@ function App() {
                     </h3>
 
                     <div className="timeline-container">
-                      <div className="timeline-line" />
-
-                      {result.timeline.map((act, idx) => (
-                        <div key={idx} className="timeline-item">
-                          <div className="timeline-dot" style={{ backgroundColor: act.color }} />
-
-                          <div style={{ width: '120px', flexShrink: 0, paddingLeft: '20px', fontSize: '13px' }}>
-                            <span style={{ fontWeight: '700', display: 'block' }}>{act.start}</span>
-                            <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '2px' }}>{act.date}</span>
-                          </div>
-
-                          <div className="timeline-content">
-                            <div>
-                              <strong style={{ fontSize: '14px', fontWeight: '600', display: 'block' }}>{act.description}</strong>
-                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                                Location: {act.location}
-                              </span>
+                      {result.timeline.map((act, idx) => {
+                        // Parse duration for bar width
+                        const durationMatch = act.duration.match(/([\d.]+)/);
+                        const durationHours = durationMatch ? parseFloat(durationMatch[0]) : 0;
+                        const barWidth = Math.min(Math.max(durationHours * 14, 20), 250);
+                        
+                        // Determine if this is a short activity (less than 0.5 hrs)
+                        const isShort = durationHours < 0.5;
+                        
+                        return (
+                          <div key={idx} className="timeline-item-new">
+                            {/* Time */}
+                            <div className="timeline-time">
+                              <span className="time-start">{act.start}</span>
+                              <span className="time-date">{act.date}</span>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <span
+
+                            {/* Duration Bar */}
+                            <div className="timeline-bar-wrapper">
+                              <div 
+                                className="timeline-duration-bar"
                                 style={{
-                                  display: 'inline-block',
-                                  padding: '4px 8px',
-                                  borderRadius: '6px',
-                                  fontSize: '11px',
-                                  fontWeight: '700',
-                                  backgroundColor: `${act.color}15`,
-                                  color: act.color,
-                                  border: `1px solid ${act.color}30`
+                                  width: `${barWidth}px`,
+                                  backgroundColor: act.color,
+                                  minWidth: isShort ? '16px' : '20px'
                                 }}
                               >
-                                {act.status}
-                              </span>
-                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                Duration: {act.duration}
-                              </span>
+                                <span className="bar-duration-label">{act.duration}</span>
+                              </div>
+                              
+                              {/* Activity info */}
+                              <div className="timeline-activity-info">
+                                <strong className="activity-title">{act.description}</strong>
+                                <span className="activity-location">📍 {act.location}</span>
+                              </div>
                             </div>
+
+                            {/* Status Badge */}
+                            <span 
+                              className="timeline-status-badge"
+                              style={{
+                                backgroundColor: `${act.color}20`,
+                                color: act.color,
+                                borderColor: `${act.color}30`
+                              }}
+                            >
+                              {act.status}
+                            </span>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
