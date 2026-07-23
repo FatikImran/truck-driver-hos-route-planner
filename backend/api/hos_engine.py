@@ -254,6 +254,7 @@ def partition_activities_into_days(activities, start_time):
         act_start = act["start"]
         act_end = act["end"]
         
+        # If activity starts on a future date, fill the gap with OFF duty
         if act_start.date() > current_date:
             # Fill remaining time with OFF duty
             filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
@@ -303,13 +304,15 @@ def partition_activities_into_days(activities, start_time):
             if filled_seconds < 24 * 3600:
                 # Fill remaining with OFF duty
                 remaining = 24 * 3600 - filled_seconds
+                last_loc = day_activities[-1]["location"] if day_activities else "Start"
+                off_start = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds)
                 off_activity = {
-                    "start": next_midnight - datetime.timedelta(seconds=filled_seconds),
+                    "start": off_start,
                     "end": next_midnight,
                     "duration_hours": remaining / 3600.0,
                     "status": "OFF",
                     "description": "Off Duty / Rest",
-                    "location": day_activities[-1]["location"]
+                    "location": last_loc
                 }
                 day_activities.append(off_activity)
             
@@ -338,15 +341,19 @@ def partition_activities_into_days(activities, start_time):
         if remaining_seconds > 0:
             last_loc = day_activities[-1]["location"] if day_activities else "Start"
             last_end = day_activities[-1]["end"] if day_activities else datetime.datetime.combine(current_date, datetime.time.min)
-            off_activity = {
-                "start": last_end,
-                "end": last_end + datetime.timedelta(seconds=remaining_seconds),
-                "duration_hours": remaining_seconds / 3600.0,
-                "status": "OFF",
-                "description": "Off Duty / Rest",
-                "location": last_loc
-            }
-            day_activities.append(off_activity)
+            
+            # If last_end is already at midnight, don't add more
+            if last_end.time() != datetime.time.min or last_end.date() != current_date + datetime.timedelta(days=1):
+                off_activity = {
+                    "start": last_end,
+                    "end": last_end + datetime.timedelta(seconds=remaining_seconds),
+                    "duration_hours": remaining_seconds / 3600.0,
+                    "status": "OFF",
+                    "description": "Off Duty / Rest",
+                    "location": last_loc
+                }
+                day_activities.append(off_activity)
+        
         days.append({
             "date": current_date,
             "activities": day_activities
