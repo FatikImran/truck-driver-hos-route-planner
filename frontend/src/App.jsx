@@ -792,14 +792,17 @@ function App() {
 
                     <div className="timeline-container">
                       {result.timeline.map((act, idx) => {
-                        // Parse duration for bar width
+                        // Parse duration in hours
                         const durationMatch = act.duration.match(/([\d.]+)/);
                         const durationHours = durationMatch ? parseFloat(durationMatch[0]) : 0;
         
                         // Format duration as "Xh Ym" (e.g., "8h 00m", "0h 15m")
                         const hours = Math.floor(durationHours);
                         const minutes = Math.round((durationHours - hours) * 60);
-                        const formattedDuration = `${hours}h ${String(minutes).padStart(2, '0')}m`;
+                        const formattedDurationHMS = `${hours}h ${String(minutes).padStart(2, '0')}m`;
+        
+                        // Format duration as decimal hours (e.g., "5.25 hrs")
+                        const formattedDurationDecimal = `${durationHours.toFixed(2)} hrs`;
         
                         // Determine bar width category
                         let barWidth;
@@ -807,16 +810,16 @@ function App() {
         
                         if (durationHours >= 5) {
                           // >= 5 hours: Full width (8 hours = full bar)
-                          barWidth = Math.min(durationHours * 20, 200); // 5h = 100px, 8h = 160px, 10h = 200px
-                          barLabel = formattedDuration;
+                          barWidth = Math.min(durationHours * 20, 200);
+                          barLabel = formattedDurationHMS;
                         } else if (durationHours >= 3) {
                           // 3-5 hours: Medium bar
-                          barWidth = Math.min(durationHours * 20, 100); // 3h = 60px, 5h = 100px
-                          barLabel = formattedDuration;
+                          barWidth = Math.min(durationHours * 20, 100);
+                          barLabel = formattedDurationHMS;
                         } else if (durationHours >= 0.5) {
                           // 0.5-3 hours: Small bar with text
-                          barWidth = Math.max(durationHours * 25, 30); // 0.5h = 25px, 3h = 75px
-                          barLabel = formattedDuration;
+                          barWidth = Math.max(durationHours * 25, 30);
+                          barLabel = formattedDurationHMS;
                         } else {
                           // < 0.5 hours: Dot with tooltip
                           barWidth = 0;
@@ -826,14 +829,23 @@ function App() {
                         // Determine if duration text will fit inside the bar
                         const willFitInside = barWidth > 55 && durationHours >= 0.5;
         
-                        // Format display duration (short version for bar)
-                        const shortDuration = formattedDuration;
+                        // Tooltip content (custom CSS tooltip)
+                        const tooltipLines = [
+                          act.description,
+                          `Duration: ${formattedDurationHMS}`,
+                          `${act.start} - ${act.end}`,
+                          `Location: ${act.location}`
+                        ];
         
-                        // Tooltip content
-                        const tooltipText = `${act.description}\nDuration: ${formattedDuration}\n${act.start} - ${act.end}\nLocation: ${act.location}`;
+                        // Status color
+                        const statusColor = act.color;
         
                         return (
-                          <div key={idx} className="timeline-item-new">
+                          <div 
+                            key={idx} 
+                            className="timeline-item-new"
+                            data-tooltip={tooltipLines.join('\n')}
+                          >
                             {/* Time */}
                             <div className="timeline-time">
                               <span className="time-start">{act.start}</span>
@@ -847,29 +859,27 @@ function App() {
                                   className={`timeline-duration-bar ${willFitInside ? 'has-label' : 'no-label'}`}
                                   style={{
                                     width: `${Math.max(barWidth, 20)}px`,
-                                    backgroundColor: act.color,
+                                    backgroundColor: statusColor,
                                     minWidth: '20px'
                                   }}
-                                  title={tooltipText}
                                 >
                                   {willFitInside ? (
-                                    <span className="bar-duration-label">{shortDuration}</span>
+                                    <span className="bar-duration-label">{barLabel}</span>
                                   ) : (
-                                    <span className="bar-duration-label-short">{shortDuration}</span>
+                                    <span className="bar-duration-label-short">{barLabel}</span>
                                   )}
                                 </div>
                               ) : (
                                 <div 
                                   className="timeline-duration-dot"
                                   style={{
-                                    backgroundColor: act.color,
+                                    backgroundColor: statusColor,
                                     width: '16px',
                                     height: '16px',
                                     borderRadius: '50%',
                                     flexShrink: 0,
                                     boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
                                   }}
-                                  title={tooltipText}
                                 />
                               )}
               
@@ -880,18 +890,18 @@ function App() {
                               </div>
                             </div>
 
-                            {/* Duration badge - always visible */}
-                            <span className="timeline-duration-badge" title={tooltipText}>
-                              {formattedDuration}
+                            {/* Duration badge - shows decimal hours */}
+                            <span className="timeline-duration-badge">
+                              {formattedDurationDecimal}
                             </span>
 
                             {/* Status Badge */}
                             <span 
                               className="timeline-status-badge"
                               style={{
-                                backgroundColor: `${act.color}20`,
-                                color: act.color,
-                                borderColor: `${act.color}30`
+                                backgroundColor: `${statusColor}20`,
+                                color: statusColor,
+                                borderColor: `${statusColor}30`
                               }}
                             >
                               {act.status}

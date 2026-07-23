@@ -627,6 +627,9 @@ body {
   gap: 10px;
 }
 
+/* ============================================
+   TIMELINE ITEM - Tooltip on entire card
+   ============================================ */
 .timeline-item-new {
   display: flex;
   align-items: center;
@@ -637,15 +640,70 @@ body {
   border: 1px solid var(--border-glass);
   transition: all var(--transition-fast);
   position: relative;
+  cursor: default;
+}
+
+/* Custom tooltip on the entire card */
+.timeline-item-new::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.95);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: pre-line;
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-card);
+  z-index: 1000;
+  max-width: 320px;
+  min-width: 180px;
+  text-align: left;
+  line-height: 1.5;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+
+/* Tooltip arrow */
+.timeline-item-new::after {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.95);
+  border: 6px solid transparent;
+  border-top-color: var(--bg-secondary);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+
+/* Show tooltip on hover */
+.timeline-item-new:hover::before,
+.timeline-item-new:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) scale(1);
 }
 
 .timeline-item-new:hover {
   border-color: var(--color-primary);
   transform: translateX(4px);
-  box-shadow: var(--shadow-neon);
+  box-shadow: var(--shadow-hover), var(--shadow-neon);
   background: var(--bg-glass-hover);
+  z-index: 10;
 }
 
+/* ============================================
+   TIMELINE TIME
+   ============================================ */
 .timeline-time {
   width: 110px;
   flex-shrink: 0;
@@ -664,6 +722,9 @@ body {
   display: block;
 }
 
+/* ============================================
+   TIMELINE BAR WRAPPER
+   ============================================ */
 .timeline-bar-wrapper {
   flex: 1;
   display: flex;
@@ -680,37 +741,14 @@ body {
   border-radius: 6px;
   position: relative;
   flex-shrink: 0;
-  transition: width 0.5s ease, background-color 0.3s ease, transform 0.2s ease;
+  transition: width 0.5s ease, background-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   overflow: hidden;
-  cursor: default;
 }
 
 .timeline-duration-bar:hover {
   transform: scaleY(1.1);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-}
-
-/* Tooltip on hover via title attribute */
-.timeline-duration-bar[title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: pre-line;
-  border: 1px solid var(--border-glass);
-  box-shadow: var(--shadow-card);
-  z-index: 100;
-  max-width: 300px;
-  text-align: left;
-  line-height: 1.4;
 }
 
 .timeline-duration-bar.has-label {
@@ -752,39 +790,12 @@ body {
   flex-shrink: 0;
   border-radius: 50%;
   transition: all 0.3s ease;
-  cursor: default;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .timeline-duration-dot:hover {
   transform: scale(1.3);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-/* Tooltip on hover for dots */
-.timeline-duration-dot[title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: pre-line;
-  border: 1px solid var(--border-glass);
-  box-shadow: var(--shadow-card);
-  z-index: 100;
-  max-width: 300px;
-  text-align: left;
-  line-height: 1.4;
-}
-
-.timeline-duration-dot[title]:hover {
-  position: relative;
 }
 
 /* ============================================
@@ -816,14 +827,14 @@ body {
 }
 
 /* ============================================
-   TIMELINE DURATION BADGE
+   TIMELINE DURATION BADGE (Decimal hours)
    ============================================ */
 .timeline-duration-badge {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   flex-shrink: 0;
-  min-width: 60px;
+  min-width: 65px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   cursor: default;
@@ -896,7 +907,7 @@ body {
 
   .timeline-duration-badge {
     font-size: 10px;
-    min-width: 50px;
+    min-width: 55px;
   }
 
   .timeline-status-badge {
@@ -915,6 +926,24 @@ body {
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
+  }
+
+  .timeline-item-new::before {
+    max-width: 250px;
+    font-size: 11px;
+    padding: 8px 12px;
+    left: 10px;
+    transform: none;
+  }
+
+  .timeline-item-new::after {
+    left: 20px;
+    transform: none;
+  }
+
+  .timeline-item-new:hover::before,
+  .timeline-item-new:hover::after {
+    transform: none;
   }
 
   .timeline-time {
@@ -944,7 +973,7 @@ body {
 
   .timeline-duration-badge {
     font-size: 10px;
-    min-width: 40px;
+    min-width: 50px;
     text-align: left;
   }
 
