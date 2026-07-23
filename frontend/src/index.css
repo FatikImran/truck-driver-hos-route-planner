@@ -671,12 +671,21 @@ body {
 }
 
 .timeline-duration-bar {
-  height: 24px;
+  height: 26px;
   border-radius: 6px;
   position: relative;
   flex-shrink: 0;
-  transition: width 0.5s ease;
+  transition: width 0.5s ease, background-color 0.3s ease;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.timeline-duration-bar.has-label {
+  min-width: 40px;
+}
+
+.timeline-duration-bar.no-label {
+  min-width: 20px;
 }
 
 .timeline-duration-bar .bar-duration-label {
@@ -689,6 +698,17 @@ body {
   color: #ffffff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   white-space: nowrap;
+}
+
+.timeline-duration-bar .bar-duration-label-short {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .timeline-activity-info {
@@ -716,6 +736,16 @@ body {
   text-overflow: ellipsis;
 }
 
+.timeline-duration-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  min-width: 50px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .timeline-status-badge {
   display: inline-block;
   padding: 3px 10px;
@@ -727,7 +757,9 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* Mobile Responsive */
+/* ============================================
+   TIMELINE - RESPONSIVE
+   ============================================ */
 @media (max-width: 768px) {
   .timeline-item-new {
     flex-wrap: wrap;
@@ -745,7 +777,6 @@ body {
 
   .timeline-duration-bar {
     height: 20px;
-    min-width: 12px !important;
   }
 
   .timeline-duration-bar .bar-duration-label {
@@ -765,6 +796,11 @@ body {
 
   .timeline-activity-info .activity-location {
     font-size: 10px;
+  }
+
+  .timeline-duration-badge {
+    font-size: 10px;
+    min-width: 40px;
   }
 
   .timeline-status-badge {
@@ -803,6 +839,12 @@ body {
 
   .timeline-duration-bar .bar-duration-label {
     font-size: 8px;
+  }
+
+  .timeline-duration-badge {
+    font-size: 10px;
+    min-width: 30px;
+    text-align: left;
   }
 
   .timeline-status-badge {
