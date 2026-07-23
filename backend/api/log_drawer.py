@@ -14,22 +14,6 @@ def time_to_pixel_x(time_obj, grid_left, grid_width):
     hours = time_obj.hour + time_obj.minute / 60.0 + time_obj.second / 3600.0
     return int(grid_left + (hours / 24.0) * grid_width)
 
-def draw_diagonal_line(draw, x1, y1, x2, y2, color='black', width=1):
-    """Draw a diagonal line between two points."""
-    draw.line([(x1, y1), (x2, y2)], fill=color, width=width)
-
-def draw_bucket(draw, x_left, x_right, y_line, y_bottom, color='black', fill_color=None):
-    """
-    Draw a bucket/flag shape extending from the diagonal line.
-    The bucket goes from the diagonal line down to the bottom of the status row.
-    """
-    if fill_color:
-        draw.polygon([(x_left, y_line), (x_right, y_line), (x_right, y_bottom), (x_left, y_bottom)], 
-                     outline=color, fill=fill_color)
-    else:
-        draw.polygon([(x_left, y_line), (x_right, y_line), (x_right, y_bottom), (x_left, y_bottom)], 
-                     outline=color)
-
 def get_template_path():
     """Find the template image in multiple possible locations."""
     current_dir = Path(__file__).resolve().parent
@@ -167,126 +151,60 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         y_driving = 222
         y_on_duty = 245   
         
-        # Row boundaries (top and bottom of each status row)
-        row_height = 14
-        y_off_top = y_off_duty - row_height // 2
-        y_off_bottom = y_off_duty + row_height // 2
-        y_sb_top = y_sleeper - row_height // 2
-        y_sb_bottom = y_sleeper + row_height // 2
-        y_d_top = y_driving - row_height // 2
-        y_d_bottom = y_driving + row_height // 2
-        y_on_top = y_on_duty - row_height // 2
-        y_on_bottom = y_on_duty + row_height // 2
-        
         status_y_map = {
-            "OFF": (y_off_duty, y_off_top, y_off_bottom),
-            "SB": (y_sleeper, y_sb_top, y_sb_bottom),
-            "D": (y_driving, y_d_top, y_d_bottom),
-            "ON": (y_on_duty, y_on_top, y_on_bottom),
-        }
- 
-        # Color mapping for statuses
-        status_colors = {
-            "OFF": "#10b981",
-            "SB": "#3b82f6",
-            "D": "#f59e0b",
-            "ON": "#8b5cf6",
+            "OFF": y_off_duty,
+            "SB": y_sleeper,
+            "D": y_driving,
+            "ON": y_on_duty
         }
         
         # Sort activities by start time
         sorted_activities = sorted(day_activities, key=lambda a: a["start"])
         
-        # Group consecutive activities by status and location
-        grouped_activities = []
-        current_group = None
+        # Calculate totals
+        totals = {"OFF": 0.0, "SB": 0.0, "D": 0.0, "ON": 0.0}
+        for act in sorted_activities:
+            totals[act["status"]] += act["duration_hours"]
         
         for act in sorted_activities:
             status = act["status"]
-            location = act["location"]
+            y_val = status_y_map.get(status, y_off_duty)
             
-            if current_group is None or current_group["status"] != status or current_group["location"] != location:
-                if current_group is not None:
-                    grouped_activities.append(current_group)
-                current_group = {
-                    "status": status,
-                    "location": location,
-                    "start": act["start"],
-                    "end": act["end"],
-                    "duration_hours": act["duration_hours"],
-                    "description": act["description"],
-                    "activities": [act]
-                }
-            else:
-                current_group["end"] = act["end"]
-                current_group["duration_hours"] += act["duration_hours"]
-                current_group["activities"].append(act)
+            start_x = time_to_pixel_x(act["start"], x_grid_left, grid_width)
+            end_x = time_to_pixel_x(act["end"], x_grid_left, grid_width)
+            
+            # Draw horizontal line for this status
+            draw.line([(start_x, y_val), (end_x, y_val)], fill='blue', width=2)
         
-        if current_group is not None:
-            grouped_activities.append(current_group)
-        
-        # Draw horizontal lines for each group
-        for i, group in enumerate(grouped_activities):
-            status = group["status"]
-            y_center, y_top, y_bottom = status_y_map.get(status, (y_off_duty, y_off_top, y_off_bottom))
+        # =============================================================
+        # DRAW DIAGONAL LINES BETWEEN STATUS CHANGES
+        # =============================================================
+        for i in range(len(sorted_activities) - 1):
+            current_act = sorted_activities[i]
+            next_act = sorted_activities[i + 1]
             
-            start_x = time_to_pixel_x(group["start"], x_grid_left, grid_width)
-            end_x = time_to_pixel_x(group["end"], x_grid_left, grid_width)
+            # Only draw diagonal if status actually changed
+            if current_act["status"] == next_act["status"]:
+                continue
             
-            # Draw horizontal line
-            draw.line([(start_x, y_center), (end_x, y_center)], fill='blue', width=2)
+            # Get the Y positions for both statuses
+            curr_y = status_y_map.get(current_act["status"], y_off_duty)
+            next_y = status_y_map.get(next_act["status"], y_off_duty)
             
-            # Draw bucket (vertical lines at start and end of the status block)
-            # This creates the "bucket" effect - vertical lines at status boundaries
-            if i == 0:
-                # First group - only draw right boundary
-                draw.line([(end_x, y_top), (end_x, y_bottom)], fill='blue', width=1)
-            elif i == len(grouped_activities) - 1:
-                # Last group - only draw left boundary
-                draw.line([(start_x, y_top), (start_x, y_bottom)], fill='blue', width=1)
-            else:
-                # Middle group - draw both boundaries
-                draw.line([(start_x, y_top), (start_x, y_bottom)], fill='blue', width=1)
-                draw.line([(end_x, y_top), (end_x, y_bottom)], fill='blue', width=1)
-        
-        # Draw diagonal lines between status changes
-        for i in range(len(grouped_activities) - 1):
-            current_group = grouped_activities[i]
-            next_group = grouped_activities[i + 1]
+            # The transition point is at the end of the current activity
+            transition_x = time_to_pixel_x(current_act["end"], x_grid_left, grid_width)
             
-            # Get the Y positions for the two statuses
-            _, curr_top, curr_bottom = status_y_map.get(current_group["status"], (y_off_duty, y_off_top, y_off_bottom))
-            _, next_top, next_bottom = status_y_map.get(next_group["status"], (y_off_duty, y_off_top, y_off_bottom))
+            # Draw diagonal line connecting the two statuses
+            # The diagonal goes from current status to next status
+            draw.line([(transition_x, curr_y), (transition_x + 15, next_y)], fill='blue', width=2)
             
-            # The transition point is at the end of the current group's X position
-            transition_x = time_to_pixel_x(current_group["end"], x_grid_left, grid_width)
+            # Draw the reverse diagonal (for the bucket/flag effect)
+            draw.line([(transition_x, next_y), (transition_x + 15, curr_y)], fill='blue', width=2)
             
-            # Current status Y (center of the row)
-            curr_y = status_y_map.get(current_group["status"], (y_off_duty, y_off_top, y_off_bottom))[0]
-            next_y = status_y_map.get(next_group["status"], (y_off_duty, y_off_top, y_off_bottom))[0]
-            
-            # Draw diagonal line from current status to next status
-            draw_diagonal_line(draw, transition_x, curr_y, transition_x + 15, next_y, color='blue', width=2)
-            
-            # Draw the reverse diagonal from next status to current status
-            draw_diagonal_line(draw, transition_x, next_y, transition_x + 15, curr_y, color='blue', width=2)
-            
-            # Draw vertical lines at the transition (bucket effect)
-            draw.line([(transition_x, curr_top), (transition_x, curr_bottom)], fill='blue', width=1)
-            draw.line([(transition_x + 15, next_top), (transition_x + 15, next_bottom)], fill='blue', width=1)
-            
-            # Draw "bucket" shape - a flag extending from the diagonal
-            # This creates the visual effect of a bucket/flag at the transition point
-            draw.polygon([
-                (transition_x, curr_top),
-                (transition_x, curr_bottom),
-                (transition_x + 15, next_bottom),
-                (transition_x + 15, next_top)
-            ], outline='blue', width=1)
-            
-            # Add remark text along the diagonal
-            remark_text = f"{current_group['description']} → {next_group['description']}"
-            if len(remark_text) > 25:
-                remark_text = remark_text[:22] + "..."
+            # Add remark text near the diagonal
+            remark_text = f"{current_act['description']}"
+            if len(remark_text) > 20:
+                remark_text = remark_text[:17] + "..."
             
             # Position the remark at the diagonal
             remark_x = transition_x + 20
@@ -302,9 +220,6 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # TOTAL HOURS COLUMN — right side of the grid
     # =========================================================================
     try:
-        totals = {"OFF": 0.0, "SB": 0.0, "D": 0.0, "ON": 0.0}
-        for act in sorted_activities:
-            totals[act["status"]] += act["duration_hours"]
         x_totals = 469
         y_off_duty = 198
         y_sleeper = 212
