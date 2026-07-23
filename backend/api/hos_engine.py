@@ -261,14 +261,18 @@ def partition_activities_into_days(activities, start_time):
             
             if remaining_seconds > 0:
                 last_loc = day_activities[-1]["location"] if day_activities else "Start"
-                day_activities.append({
-                    "start": datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds),
-                    "end": datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=24*3600),
+                # Calculate the start time of the OFF activity
+                off_start = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds)
+                off_end = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=24*3600)
+                off_activity = {
+                    "start": off_start,
+                    "end": off_end,
                     "duration_hours": remaining_seconds / 3600.0,
                     "status": "OFF",
                     "description": "Off Duty / Rest",
                     "location": last_loc
-                })
+                }
+                day_activities.append(off_activity)
             
             days.append({
                 "date": current_date,
@@ -294,6 +298,21 @@ def partition_activities_into_days(activities, start_time):
                 "location": act["location"]
             })
             
+            # Check if the day is complete (24 hours)
+            filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
+            if filled_seconds < 24 * 3600:
+                # Fill remaining with OFF duty
+                remaining = 24 * 3600 - filled_seconds
+                off_activity = {
+                    "start": next_midnight - datetime.timedelta(seconds=filled_seconds),
+                    "end": next_midnight,
+                    "duration_hours": remaining / 3600.0,
+                    "status": "OFF",
+                    "description": "Off Duty / Rest",
+                    "location": day_activities[-1]["location"]
+                }
+                day_activities.append(off_activity)
+            
             days.append({
                 "date": current_date,
                 "activities": day_activities
@@ -318,14 +337,16 @@ def partition_activities_into_days(activities, start_time):
         remaining_seconds = 24 * 3600.0 - filled_seconds
         if remaining_seconds > 0:
             last_loc = day_activities[-1]["location"] if day_activities else "Start"
-            day_activities.append({
-                "start": day_activities[-1]["end"],
-                "end": day_activities[-1]["end"] + datetime.timedelta(seconds=remaining_seconds),
+            last_end = day_activities[-1]["end"] if day_activities else datetime.datetime.combine(current_date, datetime.time.min)
+            off_activity = {
+                "start": last_end,
+                "end": last_end + datetime.timedelta(seconds=remaining_seconds),
                 "duration_hours": remaining_seconds / 3600.0,
                 "status": "OFF",
                 "description": "Off Duty / Rest",
                 "location": last_loc
-            })
+            }
+            day_activities.append(off_activity)
         days.append({
             "date": current_date,
             "activities": day_activities

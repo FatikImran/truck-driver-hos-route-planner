@@ -116,14 +116,7 @@ def get_corrected_location(activity, leg1_path, leg2_path, leg1_dist, leg2_dist,
     
     # Driving activities - determine which leg
     if status == "D" and "Driving" in desc:
-        # Check if this is Leg 1 or Leg 2
-        if pickup_name in desc:
-            return pickup_name
-        elif dropoff_name in desc:
-            return dropoff_name
-        else:
-            # Check what comes before/after in the timeline
-            return "En Route"
+        return "En Route"  # Change this
     
     # On-duty non-driving activities
     if status == "ON":
