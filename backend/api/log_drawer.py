@@ -2,6 +2,7 @@ import os
 import base64
 import datetime
 import logging
+import math
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -12,6 +13,35 @@ logger = logging.getLogger(__name__)
 def time_to_hours(dt):
     """Convert datetime object to hours from midnight (0.0 to 24.0)."""
     return dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+
+def _draw_rotated_text(img, anchor_xy, text, font, fill, angle_deg):
+    """
+    Draw `text` onto `img`, rotated so it reads along a diagonal leader line.
+
+    anchor_xy is treated as BOTH the rotation pivot AND the point where the
+    left-middle of the text sits — so the text always starts exactly at
+    anchor_xy no matter what angle it's rotated to.
+
+    angle_deg is the direction of the diagonal in standard image pixel space
+    (0 = pointing right, positive = downward-right), i.e. math.degrees(
+    math.atan2(dy, dx)) using pixel dx/dy where y grows downward.
+    """
+    dummy = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
+    bbox = dummy.textbbox((0, 0), text, font=font)
+    tw = max(bbox[2] - bbox[0], 1)
+    th = max(bbox[3] - bbox[1], 1)
+
+    # Oversized square canvas, centered on the pivot, so the rotated text
+    # never gets clipped regardless of angle.
+    half = int(math.hypot(tw, th)) + 8
+    canvas = Image.new('RGBA', (half * 2, half * 2), (255, 255, 255, 0))
+    cdraw = ImageDraw.Draw(canvas)
+    cdraw.text((half, half), text, font=font, fill=fill, anchor='lm')
+
+    # PIL's rotate() is counter-clockwise-positive in pixel space, which is
+    # the opposite sense of our atan2(dy, dx) (y grows downward), so negate.
+    rotated = canvas.rotate(-angle_deg, resample=Image.BICUBIC, expand=False)
+    img.paste(rotated, (int(anchor_xy[0] - half), int(anchor_xy[1] - half)), rotated)
 
 def get_template_path():
     """Find the template image in multiple possible locations."""
@@ -170,6 +200,11 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         prev_x = None
         prev_y = None
 
+        # Stationary (non-driving) duty periods get a remark bracket + leader
+        # line later on. Collected here, alongside the grid line, so both use
+        # the exact same x1/x2/y_val coordinates.
+        remark_targets = []
+
         for act in day_activities:
             status = act["status"]
             y_val = status_y_map.get(status, y_off_duty)
@@ -209,7 +244,12 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             
             # Draw horizontal line for this duty status
             draw.line([(x1, y_val), (x2, y_val)], fill='blue', width=2)
-            
+
+            # Any period where the truck isn't moving (i.e. not "D") and isn't
+            # just generic filler is a "stop" that should get a remark.
+            if status != "D" and act.get("description") != "Off Duty / Rest":
+                remark_targets.append({"x1": x1, "x2": x2, "y_val": y_val, "act": act})
+
             # Draw vertical connecting line from previous status
             if prev_x is not None and abs(prev_x - x1) <= 1:
                 y_min = min(prev_y, y_val)
@@ -243,27 +283,57 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         logger.error(f"Error drawing totals: {e}")
 
     # =========================================================================
-    # REMARKS SECTION — below the grid
+    # REMARKS SECTION — bucket brackets + diagonal leaders below the grid
     # =========================================================================
-    # "Remarks" section starts around y=263. We'll draw our remarks below y=275
+    # For every stop (any period the truck isn't moving, other than plain OFF
+    # duty filler), draw a bracket ("bucket") that hugs the exact start/end
+    # boundaries of that stop on the grid, a diagonal leader line running from
+    # the point where the driver's status changed into the stop, down to a
+    # remark slot, and the remark text itself written along that diagonal.
     try:
-        y_remark = 275  # Slightly up
-        remark_lines = []
-        for act in day_activities:
+        grid_bottom = 256   # common bottom rim every bucket hangs down to
+        bucket_gap = 2      # small clearance so ticks don't touch the duty line
+
+        col_x_positions = [15, 255]
+        row_height = 18
+        max_rows_per_col = 9
+
+        max_remarks = len(col_x_positions) * max_rows_per_col
+        for idx, target in enumerate(remark_targets[:max_remarks]):
+            x1, x2, y_val, act = target["x1"], target["x2"], target["y_val"], target["act"]
+
+            # --- Bucket: brackets the stop's exact time span on the grid ---
+            top_y = y_val + bucket_gap
+            draw.line([(x1, top_y), (x1, grid_bottom)], fill='blue', width=1)
+            draw.line([(x2, top_y), (x2, grid_bottom)], fill='blue', width=1)
+            draw.line([(x1, grid_bottom), (x2, grid_bottom)], fill='blue', width=1)
+
+            # --- Where the remark text will sit ---
+            col = idx // max_rows_per_col
+            row = idx % max_rows_per_col
+            target_x = col_x_positions[col]
+            target_y = 272 + row * row_height
+
+            # The diagonal starts at the LEFT edge of the bucket: the instant
+            # the driver's duty status changed into this stop.
+            anchor_x, anchor_y = x1, grid_bottom
+            draw.line([(anchor_x, anchor_y), (target_x, target_y)], fill='blue', width=1)
+
+            # --- Remark text, rotated to follow that same diagonal ---
+            start_str = act["start"].strftime("%I:%M %p").lstrip("0")
             desc = act["description"]
-            if desc == "Off Duty / Rest":
-                continue
-            start_str = act["start"].strftime("%I:%M %p")
             loc = act["location"]
-            remark_lines.append(f"{start_str} - {desc} ({loc})")
-        
-        col_x = 15  # Moved left
-        for idx, remark in enumerate(remark_lines[:14]):
-            if idx == 7:
-                col_x = 262  # Moved left
-                y_remark = 275
-            draw.text((col_x, y_remark), remark[:42], fill='black', font=font_sm)
-            y_remark += 10
+            remark_text = f"{start_str} {desc} ({loc})"[:34]
+
+            dx = target_x - anchor_x
+            dy = target_y - anchor_y
+            # Keep the text reading left-to-right (never upside-down/backwards):
+            # if the slot sits to the left of its grid point, flip the vector
+            # so the text instead extends back toward the grid point.
+            if dx < 0:
+                dx, dy = -dx, -dy
+            angle_deg = math.degrees(math.atan2(dy, dx))
+            _draw_rotated_text(img, (target_x, target_y), remark_text, font_sm, 'black', angle_deg)
     except Exception as e:
         logger.error(f"Error drawing remarks: {e}")
 
