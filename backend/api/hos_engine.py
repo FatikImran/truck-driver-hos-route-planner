@@ -235,6 +235,147 @@ def run_trip_simulation(start_time, initial_cycle_used, speed_mph,
 
 def partition_activities_into_days(activities, start_time):
     """
+    Partition activities into 24-hour calendar days.
+    Splits activities that cross midnight and ensures every day is complete.
+    """
+    if not activities:
+        return []
+    
+    # Ensure all activities have valid locations
+    for act in activities:
+        if "location" not in act:
+            act["location"] = "Unknown"
+    
+    # Prepend OFF duty if needed
+    first_act_start = activities[0]["start"]
+    first_day_midnight = datetime.datetime.combine(first_act_start.date(), datetime.time.min)
+    if first_act_start > first_day_midnight:
+        gap_duration = (first_act_start - first_day_midnight).total_seconds()
+        off_activity = {
+            "start": first_day_midnight,
+            "end": first_act_start,
+            "duration_hours": gap_duration / 3600.0,
+            "status": "OFF",
+            "description": "Off Duty / Rest",
+            "location": activities[0]["location"]
+        }
+        activities.insert(0, off_activity)
+    
+    days = []
+    current_date = start_time.date()
+    day_activities = []
+    
+    for act in activities:
+        act_start = act["start"]
+        act_end = act["end"]
+        
+        # If this activity starts on a future date, close the current day
+        if act_start.date() > current_date:
+            # Fill the rest of current_date with OFF duty
+            filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
+            remaining_seconds = 24 * 3600.0 - filled_seconds
+            
+            if remaining_seconds > 0:
+                last_loc = day_activities[-1]["location"] if day_activities else "Start"
+                off_start = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds)
+                off_end = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=24*3600)
+                day_activities.append({
+                    "start": off_start,
+                    "end": off_end,
+                    "duration_hours": remaining_seconds / 3600.0,
+                    "status": "OFF",
+                    "description": "Off Duty / Rest",
+                    "location": last_loc
+                })
+            
+            days.append({
+                "date": current_date,
+                "activities": day_activities
+            })
+            
+            current_date = act_start.date()
+            day_activities = []
+        
+        # Now handle the current activity
+        # If it crosses midnight of the current_date, split it
+        next_midnight = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(days=1)
+        
+        if act_end > next_midnight and act_start < next_midnight:
+            # Split at midnight
+            duration_before = (next_midnight - act_start).total_seconds()
+            duration_after = (act_end - next_midnight).total_seconds()
+            
+            # Part before midnight
+            day_activities.append({
+                "start": act_start,
+                "end": next_midnight,
+                "duration_hours": duration_before / 3600.0,
+                "status": act["status"],
+                "description": act["description"],
+                "location": act["location"]
+            })
+            
+            # Close the day with OFF duty if needed
+            filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
+            if filled_seconds < 24 * 3600:
+                remaining = 24 * 3600 - filled_seconds
+                last_loc = day_activities[-1]["location"] if day_activities else "Start"
+                off_start = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds)
+                day_activities.append({
+                    "start": off_start,
+                    "end": next_midnight,
+                    "duration_hours": remaining / 3600.0,
+                    "status": "OFF",
+                    "description": "Off Duty / Rest",
+                    "location": last_loc
+                })
+            
+            days.append({
+                "date": current_date,
+                "activities": day_activities
+            })
+            
+            # Move to next day with the remainder
+            current_date = next_midnight.date()
+            day_activities = []
+            
+            # Add the remainder as a new activity
+            if duration_after > 0:
+                new_act = act.copy()
+                new_act["start"] = next_midnight
+                new_act["end"] = act_end
+                new_act["duration_hours"] = duration_after / 3600.0
+                # Continue processing this activity in the next iteration
+                # Add it to day_activities now since it's in the new day
+                day_activities.append(new_act)
+        else:
+            # Activity fits in the current day
+            day_activities.append(act)
+    
+    # Final day - fill remaining with OFF duty
+    if day_activities:
+        filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
+        remaining_seconds = 24 * 3600.0 - filled_seconds
+        
+        if remaining_seconds > 0:
+            last_loc = day_activities[-1]["location"] if day_activities else "Start"
+            last_end = day_activities[-1]["end"] if day_activities else datetime.datetime.combine(current_date, datetime.time.min)
+            day_activities.append({
+                "start": last_end,
+                "end": last_end + datetime.timedelta(seconds=remaining_seconds),
+                "duration_hours": remaining_seconds / 3600.0,
+                "status": "OFF",
+                "description": "Off Duty / Rest",
+                "location": last_loc
+            })
+        
+        days.append({
+            "date": current_date,
+            "activities": day_activities
+        })
+    
+    return days
+    """
     Partition activities into 24-hour calendar days with proper OFF duty filling.
     Ensures no gaps exist between activities and midnight.
     """
