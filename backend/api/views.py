@@ -21,6 +21,133 @@ def api_root(request):
         }
     })
 
+
+def get_location_at_distance(path, target_distance_miles):
+    """
+    Get the approximate location at a given distance along the route.
+    Returns a descriptive location name.
+    """
+    if not path or len(path) < 2:
+        return None
+    
+    total_distance = 0
+    for i in range(1, len(path)):
+        lat1, lon1 = path[i-1]
+        lat2, lon2 = path[i]
+        # Approximate distance in miles
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        dist = ((dlat * 69)**2 + (dlon * 54.6)**2)**0.5
+        total_distance += dist
+        
+        if total_distance >= target_distance_miles:
+            # Return a simplified location name based on progress
+            progress = total_distance / target_distance_miles if target_distance_miles > 0 else 0
+            if progress < 0.25:
+                return "En Route (Start)"
+            elif progress < 0.5:
+                return "En Route (25%)"
+            elif progress < 0.75:
+                return "En Route (50%)"
+            else:
+                return "En Route (75%)"
+    
+    return None
+
+
+def get_location_for_activity(activity, leg1_path, leg2_path, leg1_dist, leg2_dist, 
+                              current_name, pickup_name, dropoff_name):
+    """
+    Determine the appropriate location for a given activity based on its description
+    and position in the trip.
+    """
+    desc = activity.get("description", "")
+    location = activity.get("location", "")
+    
+    # If location is already set and not generic, use it
+    if location and location not in ["En Route", "Start"]:
+        return location
+    
+    # Determine based on description
+    if "Pre-trip" in desc or "Post-trip" in desc:
+        if "Pre-trip" in desc:
+            return current_name
+        else:
+            return dropoff_name
+    
+    if "Loading" in desc:
+        return pickup_name
+    
+    if "Unloading" in desc:
+        return dropoff_name
+    
+    if "Fueling" in desc:
+        return "Fuel Stop"
+    
+    if "Rest Break" in desc or "Restart" in desc:
+        # Check what activity came before
+        return "Rest Area"
+    
+    if "Driving" in desc:
+        # Determine which leg this is
+        driving_time = activity.get("duration_hours", 0)
+        leg1_time = leg1_dist / 55.0 if leg1_dist > 0 else 0
+        leg2_time = leg2_dist / 55.0 if leg2_dist > 0 else 0
+        
+        # Check if this is leg 1 or leg 2 based on context
+        if "El Paso" in desc or pickup_name in desc:
+            return pickup_name
+        elif "Los Angeles" in desc or dropoff_name in desc:
+            return dropoff_name
+        else:
+            # Try to determine based on progress
+            return "En Route"
+    
+    return location or "En Route"
+
+
+def get_corrected_location(activity, leg1_path, leg2_path, leg1_dist, leg2_dist,
+                           current_name, pickup_name, dropoff_name):
+    """
+    Correct the location for an activity based on its context in the trip.
+    """
+    desc = activity.get("description", "")
+    status = activity.get("status", "")
+    
+    # Driving activities - determine which leg
+    if status == "D" and "Driving" in desc:
+        # Check if this is Leg 1 or Leg 2
+        if pickup_name in desc:
+            return pickup_name
+        elif dropoff_name in desc:
+            return dropoff_name
+        else:
+            # Check what comes before/after in the timeline
+            return "En Route"
+    
+    # On-duty non-driving activities
+    if status == "ON":
+        if "Pre-trip" in desc:
+            return current_name
+        elif "Loading" in desc:
+            return pickup_name
+        elif "Unloading" in desc:
+            return dropoff_name
+        elif "Post-trip" in desc:
+            return dropoff_name
+        elif "Fueling" in desc:
+            return "Fuel Stop"
+    
+    # Off-duty activities
+    if status == "OFF":
+        if "Rest Break" in desc or "Restart" in desc:
+            return "Rest Area"
+        else:
+            return "Off Duty"
+    
+    return activity.get("location", "En Route")
+
+
 @csrf_exempt
 @require_POST
 def route_planner(request):
@@ -153,6 +280,22 @@ def route_planner(request):
             "error": f"HOS Simulation failed: {str(e)}"
         }, status=500)
 
+    # --- Correct Locations in Activities ---
+    corrected_activities = []
+    for act in activities:
+        corrected_act = act.copy()
+        # Correct location based on context
+        corrected_loc = get_corrected_location(
+            act, leg1["route_path"], leg2["route_path"],
+            leg1["distance_miles"], leg2["distance_miles"],
+            display_curr, display_pick, display_drop
+        )
+        corrected_act["location"] = corrected_loc
+        corrected_activities.append(corrected_act)
+    
+    # Rebuild day partitions with corrected locations
+    day_partitions = partition_activities_into_days(corrected_activities, start_time)
+
     # --- Rolling Recap Calculations & Log Sheet Drawing ---
     # Setup initial 7-day history for the rolling HOS recap.
     # We distribute the initial cycle_used hours evenly over the preceding 7 days.
@@ -213,13 +356,18 @@ def route_planner(request):
             # Format activities for UI timeline
             formatted_activities = []
             for act in day_activities:
+                # Clean up location display
+                location = act["location"]
+                if location in ["En Route (Start)", "En Route (25%)", "En Route (50%)", "En Route (75%)"]:
+                    location = "En Route"
+                
                 formatted_activities.append({
                     "start": act["start"].strftime("%I:%M %p"),
                     "end": act["end"].strftime("%I:%M %p"),
                     "duration": f"{act['duration_hours']:.2f} hrs",
                     "status": act["status"],
                     "description": act["description"],
-                    "location": act["location"]
+                    "location": location
                 })
 
             days_response.append({
@@ -256,9 +404,8 @@ def route_planner(request):
 
     # Prepare complete global trip timeline
     global_timeline = []
-    for act in activities:
-        # Determine status colors for UI
-        color = "#ef4444" # red
+    for act in corrected_activities:
+        color = "#ef4444"
         if act["status"] == "OFF":
             color = "#10b981" # green
         elif act["status"] == "SB":
@@ -266,7 +413,12 @@ def route_planner(request):
         elif act["status"] == "D":
             color = "#f59e0b" # amber
         elif act["status"] == "ON":
-            color = "#8b5cf6" # purple
+            color = "#8b5cf6"
+        
+        # Clean up location for display
+        location = act["location"]
+        if location in ["En Route (Start)", "En Route (25%)", "En Route (50%)", "En Route (75%)"]:
+            location = "En Route"
             
         global_timeline.append({
             "date": act["start"].strftime("%a, %b %d"),
@@ -275,7 +427,7 @@ def route_planner(request):
             "duration": f"{act['duration_hours']:.2f} hrs",
             "status": act["status"],
             "description": act["description"],
-            "location": act["location"],
+            "location": location,
             "color": color
         })
 
