@@ -9,10 +9,9 @@ from PIL import Image, ImageDraw, ImageFont
 # Set up logging
 logger = logging.getLogger(__name__)
 
-def time_to_pixel_x(time_obj, grid_left, grid_width):
-    """Convert time to pixel X coordinate."""
-    hours = time_obj.hour + time_obj.minute / 60.0 + time_obj.second / 3600.0
-    return int(grid_left + (hours / 24.0) * grid_width)
+def time_to_hours(dt):
+    """Convert datetime object to hours from midnight (0.0 to 24.0)."""
+    return dt.hour + dt.minute / 60.0 + dt.second / 3600.0
 
 def get_template_path():
     """Find the template image in multiple possible locations."""
@@ -157,68 +156,75 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             "D": y_driving,
             "ON": y_on_duty
         }
-        
-        # Sort activities by start time
-        sorted_activities = sorted(day_activities, key=lambda a: a["start"])
-        
-        # Calculate totals
+
+        def hr_to_x(hr):
+            """Convert hour (0-24) to pixel X coordinate on the grid."""
+            return int(x_grid_left + (hr / 24.0) * grid_width)
+
+        # Use pre-computed duration_hours from activities for accurate totals
         totals = {"OFF": 0.0, "SB": 0.0, "D": 0.0, "ON": 0.0}
-        for act in sorted_activities:
-            totals[act["status"]] += act["duration_hours"]
-        
-        for act in sorted_activities:
+
+        # Sort activities by start time
+        day_activities = sorted(day_activities, key=lambda a: a["start"])
+
+        prev_x = None
+        prev_y = None
+
+        for act in day_activities:
             status = act["status"]
             y_val = status_y_map.get(status, y_off_duty)
             
-            start_x = time_to_pixel_x(act["start"], x_grid_left, grid_width)
-            end_x = time_to_pixel_x(act["end"], x_grid_left, grid_width)
+            # Use duration_hours for totals (avoids midnight wraparound bugs)
+            totals[status] += act.get("duration_hours", 0.0)
             
-            # Draw horizontal line for this status
-            draw.line([(start_x, y_val), (end_x, y_val)], fill='blue', width=2)
-        
-        # =============================================================
-        # DRAW DIAGONAL LINES BETWEEN STATUS CHANGES
-        # =============================================================
-        for i in range(len(sorted_activities) - 1):
-            current_act = sorted_activities[i]
-            next_act = sorted_activities[i + 1]
+            # Calculate pixel positions from time
+            start_hr = time_to_hours(act["start"])
             
-            # Only draw diagonal if status actually changed
-            if current_act["status"] == next_act["status"]:
+            # For end time: if end is midnight (00:00), treat as 24.0
+            end_dt = act["end"]
+            if end_dt.hour == 0 and end_dt.minute == 0 and end_dt.second == 0:
+                # Check if end is the start of the next day (midnight)
+                if end_dt.date() > act["start"].date():
+                    end_hr = 24.0
+                else:
+                    end_hr = 0.0
+            else:
+                end_hr = time_to_hours(end_dt)
+            
+            # If end_hr < start_hr, the activity wraps midnight — cap at 24
+            if end_hr < start_hr:
+                end_hr = 24.0
+            
+            start_hr = max(0.0, min(24.0, start_hr))
+            end_hr = max(0.0, min(24.0, end_hr))
+            
+            x1 = hr_to_x(start_hr)
+            x2 = hr_to_x(end_hr)
+            
+            # Don't draw zero-width segments
+            if x1 == x2:
+                prev_x = x2
+                prev_y = y_val
                 continue
             
-            # Get the Y positions for both statuses
-            curr_y = status_y_map.get(current_act["status"], y_off_duty)
-            next_y = status_y_map.get(next_act["status"], y_off_duty)
+            # Draw horizontal line for this duty status
+            draw.line([(x1, y_val), (x2, y_val)], fill='blue', width=2)
             
-            # The transition point is at the end of the current activity
-            transition_x = time_to_pixel_x(current_act["end"], x_grid_left, grid_width)
-            
-            # Draw diagonal line connecting the two statuses
-            # The diagonal goes from current status to next status
-            draw.line([(transition_x, curr_y), (transition_x + 15, next_y)], fill='blue', width=2)
-            
-            # Draw the reverse diagonal (for the bucket/flag effect)
-            draw.line([(transition_x, next_y), (transition_x + 15, curr_y)], fill='blue', width=2)
-            
-            # Add remark text near the diagonal
-            remark_text = f"{current_act['description']}"
-            if len(remark_text) > 20:
-                remark_text = remark_text[:17] + "..."
-            
-            # Position the remark at the diagonal
-            remark_x = transition_x + 20
-            remark_y = (curr_y + next_y) // 2 - 4
-            
-            # Draw the remark with a small background for readability
-            draw.text((remark_x, remark_y), remark_text, fill='black', font=font_remark)
-
+            # Draw vertical connecting line from previous status
+            if prev_x is not None and abs(prev_x - x1) <= 1:
+                y_min = min(prev_y, y_val)
+                y_max = max(prev_y, y_val)
+                draw.line([(x1, y_min), (x1, y_max)], fill='blue', width=2)
+                
+            prev_x = x2
+            prev_y = y_val
     except Exception as e:
         logger.error(f"Error drawing grid: {e}")
 
     # =========================================================================
     # TOTAL HOURS COLUMN — right side of the grid
     # =========================================================================
+    # The "Total Hours" column is at the far right, approximately x=483
     try:
         x_totals = 469
         y_off_duty = 198
@@ -237,14 +243,13 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         logger.error(f"Error drawing totals: {e}")
 
     # =========================================================================
-    # REMARKS SECTION - Listed remarks at bottom
+    # REMARKS SECTION — below the grid
     # =========================================================================
     # "Remarks" section starts around y=263. We'll draw our remarks below y=275
     try:
-        y_remark = 275
+        y_remark = 275  # Slightly up
         remark_lines = []
-        
-        for act in sorted_activities:
+        for act in day_activities:
             desc = act["description"]
             if desc == "Off Duty / Rest":
                 continue
@@ -252,10 +257,10 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             loc = act["location"]
             remark_lines.append(f"{start_str} - {desc} ({loc})")
         
-        col_x = 15
+        col_x = 15  # Moved left
         for idx, remark in enumerate(remark_lines[:14]):
             if idx == 7:
-                col_x = 262
+                col_x = 262  # Moved left
                 y_remark = 275
             draw.text((col_x, y_remark), remark[:42], fill='black', font=font_sm)
             y_remark += 10
