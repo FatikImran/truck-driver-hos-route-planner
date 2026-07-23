@@ -59,7 +59,8 @@ function App() {
   const mapInstanceRef = useRef(null);
   const pathLayersRef = useRef([]);
   const markerLayersRef = useRef([]);
-  const isMapInitializedRef = useRef(false);
+  const mapInitializedRef = useRef(false);
+  const mapTimeoutRef = useRef(null);
 
   // ============================================
   // REDRAW ROUTE FUNCTION
@@ -67,7 +68,6 @@ function App() {
   const redrawRoute = () => {
     const L = window.L;
     if (!L || !mapInstanceRef.current || !result) {
-      console.log('Cannot redraw: missing map or result');
       return;
     }
 
@@ -148,32 +148,40 @@ function App() {
     if (bounds.length > 0) {
       mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
     }
-
-    console.log('Route redrawn successfully');
   };
 
   // ============================================
   // INITIALIZE MAP
   // ============================================
-  const initMap = () => {
-    if (!mapContainerRef.current) {
-      console.log('Map container not ready');
-      return false;
+  const initializeMap = () => {
+    if (mapInitializedRef.current) {
+      // Map already exists, just refresh
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+        if (result) {
+          setTimeout(redrawRoute, 100);
+        }
+      }
+      return;
     }
 
-    if (isMapInitializedRef.current) {
-      console.log('Map already initialized');
-      return true;
+    const container = mapContainerRef.current;
+    if (!container) {
+      // Retry after a delay
+      clearTimeout(mapTimeoutRef.current);
+      mapTimeoutRef.current = setTimeout(initializeMap, 200);
+      return;
     }
 
     const L = window.L;
     if (!L) {
-      console.log('Leaflet not loaded');
-      return false;
+      clearTimeout(mapTimeoutRef.current);
+      mapTimeoutRef.current = setTimeout(initializeMap, 200);
+      return;
     }
 
     try {
-      mapInstanceRef.current = L.map(mapContainerRef.current, {
+      mapInstanceRef.current = L.map(container, {
         center: [39.8283, -98.5795],
         zoom: 4,
         fadeAnimation: true,
@@ -185,10 +193,9 @@ function App() {
         attribution: '© OpenStreetMap contributors'
       }).addTo(mapInstanceRef.current);
 
-      isMapInitializedRef.current = true;
-      console.log('Map initialized successfully');
+      mapInitializedRef.current = true;
 
-      // Force a resize after initialization
+      // Force resize
       setTimeout(() => {
         if (mapInstanceRef.current) {
           mapInstanceRef.current.invalidateSize();
@@ -198,62 +205,36 @@ function App() {
         }
       }, 300);
 
-      return true;
     } catch (error) {
       console.error('Error initializing map:', error);
-      return false;
     }
   };
 
   // ============================================
-  // REFRESH MAP (called when switching to map tab)
+  // MAP EFFECT
   // ============================================
-  const refreshMap = () => {
-    if (mapInstanceRef.current) {
-      console.log('Refreshing map');
-      mapInstanceRef.current.invalidateSize();
-
-      // If we have results, redraw the route
-      if (result) {
-        setTimeout(redrawRoute, 200);
-      }
-    } else {
-      // Try to initialize if not already
-      initMap();
-    }
-  };
-
-  // ============================================
-  // MAP EFFECTS
-  // ============================================
-
-  // Initialize map when component mounts
   useEffect(() => {
-    // Wait for DOM to render
-    const timeoutId = setTimeout(() => {
-      initMap();
-    }, 500);
+    // Initial load
+    const loadTimeout = setTimeout(initializeMap, 100);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(loadTimeout);
+      clearTimeout(mapTimeoutRef.current);
+    };
   }, []);
 
-  // Redraw route when results change
+  // Redraw when results change
   useEffect(() => {
-    if (result && isMapInitializedRef.current && mapInstanceRef.current) {
-      setTimeout(redrawRoute, 300);
+    if (result) {
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          redrawRoute();
+        } else {
+          initializeMap();
+        }
+      }, 300);
     }
   }, [result]);
-
-  // Force map refresh when switching to map tab
-  useEffect(() => {
-    if (activeTab === 'map') {
-      // Small delay to ensure the container is visible
-      const timeoutId = setTimeout(() => {
-        refreshMap();
-      }, 200);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [activeTab]);
 
   // Handle window resize
   useEffect(() => {
@@ -321,7 +302,6 @@ function App() {
         setResult(data);
         setSelectedDayIndex(0);
         setActiveTab('map');
-        // Map will be redrawn by the useEffect
       } else {
         setError(data.error || 'Failed to simulate route and logs.');
       }
@@ -365,7 +345,6 @@ function App() {
           <Shield size={16} style={{ color: 'var(--color-emerald)' }} />
           <span>Active Driver: Muhammad Fatik Bin Imran</span>
 
-          {/* Theme Toggle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '16px' }}>
             <Sun size={16} style={{ opacity: theme === 'light' ? 1 : 0.3, transition: 'opacity 0.3s' }} />
             <button
@@ -415,7 +394,6 @@ function App() {
           </h2>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Location Fields */}
             <div>
               <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Current Location</label>
               <div style={{ position: 'relative' }}>
@@ -461,7 +439,6 @@ function App() {
               </div>
             </div>
 
-            {/* HOS / Cycle Fields */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
               <div>
                 <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Cycle Used (Hrs)</label>
@@ -497,7 +474,6 @@ function App() {
               </div>
             </div>
 
-            {/* Start Date Time */}
             <div>
               <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Trip Start Time</label>
               <div style={{ position: 'relative' }}>
@@ -512,7 +488,6 @@ function App() {
               </div>
             </div>
 
-            {/* Carrier Details */}
             <details style={{ marginTop: '4px' }}>
               <summary style={{ fontSize: '13px', fontWeight: '600', color: 'var(--color-primary)', cursor: 'pointer', outline: 'none', userSelect: 'none' }}>
                 Carrier & Truck Details
@@ -537,7 +512,6 @@ function App() {
               </div>
             </details>
 
-            {/* Error Message */}
             {error && (
               <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--color-rose)', borderRadius: '8px', padding: '10px 12px', color: 'var(--color-rose)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertTriangle size={16} />
@@ -545,7 +519,6 @@ function App() {
               </div>
             )}
 
-            {/* Submit Button */}
             <button
               type="submit"
               className="btn-primary"
@@ -570,7 +543,6 @@ function App() {
         {/* Right: Output Dashboard */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-          {/* Welcome Screen */}
           {!result && !loading && (
             <div className="glass-panel animate-fade-in" style={{ padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
               <div style={{ background: 'rgba(var(--color-primary), 0.1)', padding: '20px', borderRadius: '50%', color: 'var(--color-primary)' }}>
@@ -583,7 +555,6 @@ function App() {
             </div>
           )}
 
-          {/* Loading Screen */}
           {loading && (
             <div className="glass-panel animate-fade-in" style={{ padding: '80px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
               <div className="animate-spin" style={{ color: 'var(--color-primary)', fontSize: '40px' }}>
@@ -596,11 +567,9 @@ function App() {
             </div>
           )}
 
-          {/* Result Dashboard */}
           {result && !loading && (
             <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-              {/* Tab Header Controls */}
               <div className="tab-group">
                 <button
                   onClick={() => setActiveTab('map')}
@@ -627,254 +596,245 @@ function App() {
                 </button>
               </div>
 
-              {/* Tab Content 1: Map */}
-              {activeTab === 'map' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-                  {/* Route Summary Row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                    <div className="stat-card">
-                      <div className="stat-icon" style={{ background: 'rgba(37, 99, 235, 0.1)', color: 'var(--color-primary)' }}>
-                        <Navigation size={20} />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Distance</span>
-                        <strong style={{ fontSize: '18px', fontWeight: '700' }}>{result.route.total_distance_miles} miles</strong>
-                      </div>
-                    </div>
-
-                    <div className="stat-card">
-                      <div className="stat-icon" style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-purple)' }}>
-                        <Clock size={20} />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Driving Time</span>
-                        <strong style={{ fontSize: '18px', fontWeight: '700' }}>{result.route.total_driving_time_hours} hrs</strong>
-                      </div>
-                    </div>
-
-                    <div className="stat-card">
-                      <div className="stat-icon" style={{ background: 'rgba(5, 150, 105, 0.1)', color: 'var(--color-emerald)' }}>
-                        <Calendar size={20} />
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Duration</span>
-                        <strong style={{ fontSize: '18px', fontWeight: '700' }}>{result.days.length} Days Logs</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Leaflet Map Div */}
-                  <div className="glass-panel" style={{ padding: '10px' }}>
-                    <div
-                      ref={mapContainerRef}
-                      style={{ width: '100%', height: '450px', borderRadius: 'var(--radius-sm)' }}
-                    />
-                  </div>
-
-                  {/* Route Steps Details */}
-                  <div className="glass-panel" style={{ padding: '20px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', borderBottom: '1px solid var(--border-glass)', paddingBottom: '10px', marginBottom: '14px' }}>
-                      Planned Route Segments
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                        <div style={{ background: 'rgba(37, 99, 235, 0.1)', color: 'var(--color-primary)', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700' }}>1</div>
-                        <div style={{ flex: 1 }}>
-                          <h4 style={{ fontSize: '14px', fontWeight: '600' }}>Leg 1: Current position to Pickup Location</h4>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
-                            From: {result.route.leg1.from} <ArrowRight size={12} style={{ display: 'inline', margin: '0 4px' }} /> To: {result.route.leg1.to}
-                          </p>
-                          <span style={{ fontSize: '11px', color: 'var(--color-primary)', fontWeight: '600', marginTop: '4px', display: 'block' }}>
-                            {result.route.leg1.distance_miles} miles | approx. {result.route.leg1.driving_time_hours} hours driving
-                          </span>
+              {/* ============================================
+                  TAB CONTENT WRAPPER - ALL TABS ALWAYS MOUNTED
+                  Only visibility changes via CSS display
+                  ============================================ */}
+              <div>
+                {/* Tab 1: Map */}
+                <div style={{ display: activeTab === 'map' ? 'block' : 'none' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                      <div className="stat-card">
+                        <div className="stat-icon" style={{ background: 'rgba(37, 99, 235, 0.1)', color: 'var(--color-primary)' }}>
+                          <Navigation size={20} />
                         </div>
-                      </div>
-
-                      <div style={{ borderLeft: '2px dashed var(--border-glass)', marginLeft: '14px', height: '16px' }} />
-
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                        <div style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-purple)', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700' }}>2</div>
-                        <div style={{ flex: 1 }}>
-                          <h4 style={{ fontSize: '14px', fontWeight: '600' }}>Leg 2: Pickup Location to Dropoff Location</h4>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
-                            From: {result.route.leg2.from} <ArrowRight size={12} style={{ display: 'inline', margin: '0 4px' }} /> To: {result.route.leg2.to}
-                          </p>
-                          <span style={{ fontSize: '11px', color: 'var(--color-purple)', fontWeight: '600', marginTop: '4px', display: 'block' }}>
-                            {result.route.leg2.distance_miles} miles | approx. {result.route.leg2.driving_time_hours} hours driving
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tab Content 2: Logs */}
-              {activeTab === 'logs' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-                  {/* Day Buttons Carousel */}
-                  <div className="day-selector">
-                    {result.days.map((day, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedDayIndex(idx)}
-                        className={selectedDayIndex === idx ? 'active' : ''}
-                      >
-                        Day {day.day_index} ({day.date})
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Log View Card */}
-                  {result.days[selectedDayIndex] && (
-                    <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-                      {/* Log Header Controls */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '14px' }}>
                         <div>
-                          <h3 style={{ fontSize: '18px', fontWeight: '700' }}>Driver Daily Log Sheet - Day {result.days[selectedDayIndex].day_index}</h3>
-                          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Log date: {result.days[selectedDayIndex].date}</span>
-                        </div>
-
-                        <button
-                          onClick={() => downloadLogImage(result.days[selectedDayIndex])}
-                          className="btn-primary"
-                          style={{ padding: '8px 16px', fontSize: '13px' }}
-                        >
-                          <Download size={14} />
-                          Download Log Sheet
-                        </button>
-                      </div>
-
-                      {/* Rendered Log Image */}
-                      <div className="log-sheet-container">
-                        <img
-                          src={result.days[selectedDayIndex].image_b64}
-                          alt={`Daily Log Day ${selectedDayIndex + 1}`}
-                        />
-                      </div>
-
-                      {/* Log Recap Stats Row */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '10px' }}>
-                        <div className="stat-card">
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>On Duty Hours Today</span>
-                          <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-primary)' }}>{result.days[selectedDayIndex].recap.hours_on_duty_today} hrs</strong>
-                        </div>
-
-                        <div className="stat-card">
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>On Duty Last 7 Days</span>
-                          <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-purple)' }}>{result.days[selectedDayIndex].recap.on_duty_last_7_days} hrs</strong>
-                        </div>
-
-                        <div className="stat-card">
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Available Hours Tomorrow</span>
-                          <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-emerald)' }}>{result.days[selectedDayIndex].recap.available_tomorrow} hrs</strong>
-                        </div>
-
-                        <div className="stat-card">
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Miles Driven Today</span>
-                          <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-amber)' }}>{result.days[selectedDayIndex].miles_driven} mi</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Distance</span>
+                          <strong style={{ fontSize: '18px', fontWeight: '700' }}>{result.route.total_distance_miles} miles</strong>
                         </div>
                       </div>
 
-                      {/* Hour Grid Totals */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-glass)' }}>
-                        <div style={{ textAlign: 'center' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>OFF DUTY (OFF)</span>
-                          <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.off_duty} hrs</strong>
+                      <div className="stat-card">
+                        <div className="stat-icon" style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-purple)' }}>
+                          <Clock size={20} />
                         </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>SLEEPER BERTH (SB)</span>
-                          <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.sleeper} hrs</strong>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>DRIVING (D)</span>
-                          <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.driving} hrs</strong>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>ON DUTY (ON)</span>
-                          <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.on_duty} hrs</strong>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Driving Time</span>
+                          <strong style={{ fontSize: '18px', fontWeight: '700' }}>{result.route.total_driving_time_hours} hrs</strong>
                         </div>
                       </div>
 
-                      {/* Day Remarks List */}
-                      <div>
-                        <h4 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '10px' }}>Daily Remarks & Locations</h4>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {result.days[selectedDayIndex].remarks.map((remark, rIdx) => (
-                            <div
-                              key={rIdx}
-                              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)', fontSize: '13px' }}
-                            >
-                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--color-primary)' }} />
-                              <span>{remark}</span>
-                            </div>
-                          ))}
-                          {result.days[selectedDayIndex].remarks.length === 0 && (
-                            <p style={{ color: 'var(--text-muted)', fontSize: '13px', fontStyle: 'italic' }}>No duty status changes recorded today (Off duty all day).</p>
-                          )}
+                      <div className="stat-card">
+                        <div className="stat-icon" style={{ background: 'rgba(5, 150, 105, 0.1)', color: 'var(--color-emerald)' }}>
+                          <Calendar size={20} />
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Duration</span>
+                          <strong style={{ fontSize: '18px', fontWeight: '700' }}>{result.days.length} Days Logs</strong>
                         </div>
                       </div>
-
                     </div>
-                  )}
 
-                </div>
-              )}
+                    <div className="glass-panel" style={{ padding: '10px' }}>
+                      <div
+                        ref={mapContainerRef}
+                        style={{ width: '100%', height: '450px', borderRadius: 'var(--radius-sm)' }}
+                      />
+                    </div>
 
-              {/* Tab Content 3: Timeline */}
-              {activeTab === 'timeline' && (
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h3 style={{ fontSize: '18px', fontWeight: '700', borderBottom: '1px solid var(--border-glass)', paddingBottom: '12px', marginBottom: '20px' }}>
-                    Complete Trip HOS Duty Timeline
-                  </h3>
-
-                  <div className="timeline-container">
-                    <div className="timeline-line" />
-
-                    {result.timeline.map((act, idx) => (
-                      <div key={idx} className="timeline-item">
-                        <div className="timeline-dot" style={{ backgroundColor: act.color }} />
-
-                        <div style={{ width: '120px', flexShrink: 0, paddingLeft: '20px', fontSize: '13px' }}>
-                          <span style={{ fontWeight: '700', display: 'block' }}>{act.start}</span>
-                          <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '2px' }}>{act.date}</span>
-                        </div>
-
-                        <div className="timeline-content">
-                          <div>
-                            <strong style={{ fontSize: '14px', fontWeight: '600', display: 'block' }}>{act.description}</strong>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
-                              Location: {act.location}
+                    <div className="glass-panel" style={{ padding: '20px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', borderBottom: '1px solid var(--border-glass)', paddingBottom: '10px', marginBottom: '14px' }}>
+                        Planned Route Segments
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                          <div style={{ background: 'rgba(37, 99, 235, 0.1)', color: 'var(--color-primary)', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700' }}>1</div>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ fontSize: '14px', fontWeight: '600' }}>Leg 1: Current position to Pickup Location</h4>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
+                              From: {result.route.leg1.from} <ArrowRight size={12} style={{ display: 'inline', margin: '0 4px' }} /> To: {result.route.leg1.to}
+                            </p>
+                            <span style={{ fontSize: '11px', color: 'var(--color-primary)', fontWeight: '600', marginTop: '4px', display: 'block' }}>
+                              {result.route.leg1.distance_miles} miles | approx. {result.route.leg1.driving_time_hours} hours driving
                             </span>
                           </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '4px 8px',
-                                borderRadius: '6px',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                backgroundColor: `${act.color}15`,
-                                color: act.color,
-                                border: `1px solid ${act.color}30`
-                              }}
-                            >
-                              {act.status}
-                            </span>
-                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                              Duration: {act.duration}
+                        </div>
+
+                        <div style={{ borderLeft: '2px dashed var(--border-glass)', marginLeft: '14px', height: '16px' }} />
+
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                          <div style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-purple)', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '700' }}>2</div>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{ fontSize: '14px', fontWeight: '600' }}>Leg 2: Pickup Location to Dropoff Location</h4>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '2px' }}>
+                              From: {result.route.leg2.from} <ArrowRight size={12} style={{ display: 'inline', margin: '0 4px' }} /> To: {result.route.leg2.to}
+                            </p>
+                            <span style={{ fontSize: '11px', color: 'var(--color-purple)', fontWeight: '600', marginTop: '4px', display: 'block' }}>
+                              {result.route.leg2.distance_miles} miles | approx. {result.route.leg2.driving_time_hours} hours driving
                             </span>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    </div>
                   </div>
                 </div>
-              )}
+
+                {/* Tab 2: Logs */}
+                <div style={{ display: activeTab === 'logs' ? 'block' : 'none' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div className="day-selector">
+                      {result.days.map((day, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setSelectedDayIndex(idx)}
+                          className={selectedDayIndex === idx ? 'active' : ''}
+                        >
+                          Day {day.day_index} ({day.date})
+                        </button>
+                      ))}
+                    </div>
+
+                    {result.days[selectedDayIndex] && (
+                      <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-glass)', paddingBottom: '14px' }}>
+                          <div>
+                            <h3 style={{ fontSize: '18px', fontWeight: '700' }}>Driver Daily Log Sheet - Day {result.days[selectedDayIndex].day_index}</h3>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Log date: {result.days[selectedDayIndex].date}</span>
+                          </div>
+
+                          <button
+                            onClick={() => downloadLogImage(result.days[selectedDayIndex])}
+                            className="btn-primary"
+                            style={{ padding: '8px 16px', fontSize: '13px' }}
+                          >
+                            <Download size={14} />
+                            Download Log Sheet
+                          </button>
+                        </div>
+
+                        <div className="log-sheet-container">
+                          <img
+                            src={result.days[selectedDayIndex].image_b64}
+                            alt={`Daily Log Day ${selectedDayIndex + 1}`}
+                          />
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginTop: '10px' }}>
+                          <div className="stat-card">
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>On Duty Hours Today</span>
+                            <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-primary)' }}>{result.days[selectedDayIndex].recap.hours_on_duty_today} hrs</strong>
+                          </div>
+
+                          <div className="stat-card">
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>On Duty Last 7 Days</span>
+                            <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-purple)' }}>{result.days[selectedDayIndex].recap.on_duty_last_7_days} hrs</strong>
+                          </div>
+
+                          <div className="stat-card">
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Available Hours Tomorrow</span>
+                            <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-emerald)' }}>{result.days[selectedDayIndex].recap.available_tomorrow} hrs</strong>
+                          </div>
+
+                          <div className="stat-card">
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Miles Driven Today</span>
+                            <strong style={{ fontSize: '20px', fontWeight: '700', color: 'var(--color-amber)' }}>{result.days[selectedDayIndex].miles_driven} mi</strong>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--bg-glass)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-glass)' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>OFF DUTY (OFF)</span>
+                            <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.off_duty} hrs</strong>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>SLEEPER BERTH (SB)</span>
+                            <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.sleeper} hrs</strong>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>DRIVING (D)</span>
+                            <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.driving} hrs</strong>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>ON DUTY (ON)</span>
+                            <strong style={{ fontSize: '16px' }}>{result.days[selectedDayIndex].totals.on_duty} hrs</strong>
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '10px' }}>Daily Remarks & Locations</h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {result.days[selectedDayIndex].remarks.map((remark, rIdx) => (
+                              <div
+                                key={rIdx}
+                                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'var(--bg-glass)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)', fontSize: '13px' }}
+                              >
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--color-primary)' }} />
+                                <span>{remark}</span>
+                              </div>
+                            ))}
+                            {result.days[selectedDayIndex].remarks.length === 0 && (
+                              <p style={{ color: 'var(--text-muted)', fontSize: '13px', fontStyle: 'italic' }}>No duty status changes recorded today (Off duty all day).</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tab 3: Timeline */}
+                <div style={{ display: activeTab === 'timeline' ? 'block' : 'none' }}>
+                  <div className="glass-panel" style={{ padding: '24px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '700', borderBottom: '1px solid var(--border-glass)', paddingBottom: '12px', marginBottom: '20px' }}>
+                      Complete Trip HOS Duty Timeline
+                    </h3>
+
+                    <div className="timeline-container">
+                      <div className="timeline-line" />
+
+                      {result.timeline.map((act, idx) => (
+                        <div key={idx} className="timeline-item">
+                          <div className="timeline-dot" style={{ backgroundColor: act.color }} />
+
+                          <div style={{ width: '120px', flexShrink: 0, paddingLeft: '20px', fontSize: '13px' }}>
+                            <span style={{ fontWeight: '700', display: 'block' }}>{act.start}</span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '2px' }}>{act.date}</span>
+                          </div>
+
+                          <div className="timeline-content">
+                            <div>
+                              <strong style={{ fontSize: '14px', fontWeight: '600', display: 'block' }}>{act.description}</strong>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
+                                Location: {act.location}
+                              </span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: '700',
+                                  backgroundColor: `${act.color}15`,
+                                  color: act.color,
+                                  border: `1px solid ${act.color}30`
+                                }}
+                              >
+                                {act.status}
+                              </span>
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                Duration: {act.duration}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
             </div>
           )}
