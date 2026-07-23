@@ -796,19 +796,41 @@ function App() {
                         const durationMatch = act.duration.match(/([\d.]+)/);
                         const durationHours = durationMatch ? parseFloat(durationMatch[0]) : 0;
         
-                        // Calculate bar width: min 20px, max 300px, scaled by duration
-                        // Use a minimum width for very short activities
-                        let barWidth = Math.min(Math.max(durationHours * 16, 20), 300);
+                        // Format duration as "Xh Ym" (e.g., "8h 00m", "0h 15m")
+                        const hours = Math.floor(durationHours);
+                        const minutes = Math.round((durationHours - hours) * 60);
+                        const formattedDuration = `${hours}h ${String(minutes).padStart(2, '0')}m`;
         
-                        // For activities under 0.5 hours, make them slightly wider for visibility
-                        if (durationHours > 0 && durationHours < 0.5) {
-                          barWidth = Math.max(barWidth, 24);
+                        // Determine bar width category
+                        let barWidth;
+                        let barLabel;
+        
+                        if (durationHours >= 5) {
+                          // >= 5 hours: Full width (8 hours = full bar)
+                          barWidth = Math.min(durationHours * 20, 200); // 5h = 100px, 8h = 160px, 10h = 200px
+                          barLabel = formattedDuration;
+                        } else if (durationHours >= 3) {
+                          // 3-5 hours: Medium bar
+                          barWidth = Math.min(durationHours * 20, 100); // 3h = 60px, 5h = 100px
+                          barLabel = formattedDuration;
+                        } else if (durationHours >= 0.5) {
+                          // 0.5-3 hours: Small bar with text
+                          barWidth = Math.max(durationHours * 25, 30); // 0.5h = 25px, 3h = 75px
+                          barLabel = formattedDuration;
+                        } else {
+                          // < 0.5 hours: Dot with tooltip
+                          barWidth = 0;
+                          barLabel = '•';
                         }
         
                         // Determine if duration text will fit inside the bar
-                        // Duration text needs ~8px per character, "0.25 hrs" is ~8 chars = 64px
-                        const durationText = act.duration.replace(' hrs', 'h');
-                        const willFitInside = barWidth > 60;
+                        const willFitInside = barWidth > 55 && durationHours >= 0.5;
+        
+                        // Format display duration (short version for bar)
+                        const shortDuration = formattedDuration;
+        
+                        // Tooltip content
+                        const tooltipText = `${act.description}\nDuration: ${formattedDuration}\n${act.start} - ${act.end}\nLocation: ${act.location}`;
         
                         return (
                           <div key={idx} className="timeline-item-new">
@@ -818,23 +840,39 @@ function App() {
                               <span className="time-date">{act.date}</span>
                             </div>
 
-                            {/* Duration Bar */}
+                            {/* Duration Bar with category-based sizing */}
                             <div className="timeline-bar-wrapper">
-                              <div 
-                                className={`timeline-duration-bar ${willFitInside ? 'has-label' : 'no-label'}`}
-                                style={{
-                                  width: `${barWidth}px`,
-                                  backgroundColor: act.color,
-                                  minWidth: '20px'
-                                }}
-                              >
-                                {willFitInside ? (
-                                  <span className="bar-duration-label">{durationText}</span>
-                                ) : (
-                                  <span className="bar-duration-label-short">•</span>
-                                )}
-                              </div>
-                              
+                              {durationHours >= 0.5 ? (
+                                <div 
+                                  className={`timeline-duration-bar ${willFitInside ? 'has-label' : 'no-label'}`}
+                                  style={{
+                                    width: `${Math.max(barWidth, 20)}px`,
+                                    backgroundColor: act.color,
+                                    minWidth: '20px'
+                                  }}
+                                  title={tooltipText}
+                                >
+                                  {willFitInside ? (
+                                    <span className="bar-duration-label">{shortDuration}</span>
+                                  ) : (
+                                    <span className="bar-duration-label-short">{shortDuration}</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <div 
+                                  className="timeline-duration-dot"
+                                  style={{
+                                    backgroundColor: act.color,
+                                    width: '16px',
+                                    height: '16px',
+                                    borderRadius: '50%',
+                                    flexShrink: 0,
+                                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
+                                  }}
+                                  title={tooltipText}
+                                />
+                              )}
+              
                               {/* Activity info */}
                               <div className="timeline-activity-info">
                                 <strong className="activity-title">{act.description}</strong>
@@ -842,9 +880,9 @@ function App() {
                               </div>
                             </div>
 
-                            {/* Duration badge - always visible outside the bar */}
-                            <span className="timeline-duration-badge">
-                              {act.duration}
+                            {/* Duration badge - always visible */}
+                            <span className="timeline-duration-badge" title={tooltipText}>
+                              {formattedDuration}
                             </span>
 
                             {/* Status Badge */}

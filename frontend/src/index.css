@@ -636,12 +636,14 @@ body {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-glass);
   transition: all var(--transition-fast);
+  position: relative;
 }
 
 .timeline-item-new:hover {
   border-color: var(--color-primary);
   transform: translateX(4px);
   box-shadow: var(--shadow-neon);
+  background: var(--bg-glass-hover);
 }
 
 .timeline-time {
@@ -670,14 +672,45 @@ body {
   min-width: 0;
 }
 
+/* ============================================
+   TIMELINE DURATION BAR
+   ============================================ */
 .timeline-duration-bar {
-  height: 26px;
+  height: 28px;
   border-radius: 6px;
   position: relative;
   flex-shrink: 0;
-  transition: width 0.5s ease, background-color 0.3s ease;
+  transition: width 0.5s ease, background-color 0.3s ease, transform 0.2s ease;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   overflow: hidden;
+  cursor: default;
+}
+
+.timeline-duration-bar:hover {
+  transform: scaleY(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+/* Tooltip on hover via title attribute */
+.timeline-duration-bar[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: pre-line;
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-card);
+  z-index: 100;
+  max-width: 300px;
+  text-align: left;
+  line-height: 1.4;
 }
 
 .timeline-duration-bar.has-label {
@@ -705,12 +738,58 @@ body {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  font-size: 14px;
+  font-size: 9px;
   font-weight: 700;
   color: #ffffff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
 }
 
+/* ============================================
+   TIMELINE DURATION DOT (< 0.5 hours)
+   ============================================ */
+.timeline-duration-dot {
+  flex-shrink: 0;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  cursor: default;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.timeline-duration-dot:hover {
+  transform: scale(1.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Tooltip on hover for dots */
+.timeline-duration-dot[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: pre-line;
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-card);
+  z-index: 100;
+  max-width: 300px;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.timeline-duration-dot[title]:hover {
+  position: relative;
+}
+
+/* ============================================
+   TIMELINE ACTIVITY INFO
+   ============================================ */
 .timeline-activity-info {
   flex: 1;
   min-width: 0;
@@ -736,16 +815,28 @@ body {
   text-overflow: ellipsis;
 }
 
+/* ============================================
+   TIMELINE DURATION BADGE
+   ============================================ */
 .timeline-duration-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
   flex-shrink: 0;
-  min-width: 50px;
+  min-width: 60px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  cursor: default;
+  transition: color 0.2s ease;
 }
 
+.timeline-duration-badge:hover {
+  color: var(--text-primary);
+}
+
+/* ============================================
+   TIMELINE STATUS BADGE
+   ============================================ */
 .timeline-status-badge {
   display: inline-block;
   padding: 3px 10px;
@@ -755,6 +846,11 @@ body {
   border: 1px solid;
   flex-shrink: 0;
   letter-spacing: 0.5px;
+  transition: all 0.2s ease;
+}
+
+.timeline-status-badge:hover {
+  transform: scale(1.05);
 }
 
 /* ============================================
@@ -776,7 +872,7 @@ body {
   }
 
   .timeline-duration-bar {
-    height: 20px;
+    height: 22px;
   }
 
   .timeline-duration-bar .bar-duration-label {
@@ -800,12 +896,17 @@ body {
 
   .timeline-duration-badge {
     font-size: 10px;
-    min-width: 40px;
+    min-width: 50px;
   }
 
   .timeline-status-badge {
     font-size: 9px;
     padding: 2px 8px;
+  }
+
+  .timeline-duration-dot {
+    width: 14px !important;
+    height: 14px !important;
   }
 }
 
@@ -834,7 +935,7 @@ body {
 
   .timeline-duration-bar {
     width: 100% !important;
-    height: 18px;
+    height: 20px;
   }
 
   .timeline-duration-bar .bar-duration-label {
@@ -843,12 +944,17 @@ body {
 
   .timeline-duration-badge {
     font-size: 10px;
-    min-width: 30px;
+    min-width: 40px;
     text-align: left;
   }
 
   .timeline-status-badge {
     align-self: flex-start;
+  }
+  
+    .timeline-duration-dot {
+    width: 12px !important;
+    height: 12px !important;
   }
 }
 
