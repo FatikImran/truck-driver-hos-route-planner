@@ -62,16 +62,58 @@ class HOSSimulator:
                 self.miles_since_fuel += (duration_seconds / 3600.0) * self.speed_mph
 
     def insert_break_10h(self, reason, location):
+        """
+        Insert a 10-hour consecutive off-duty break.
+        If it's not midnight, first fill the remainder of the day with OFF-duty,
+        then start the 10-hour break at midnight.
+        """
         logger.info(f"[{self.current_time}] Inserting 10-hour rest break due to {reason} at {location}.")
-        self.add_activity(10 * 3600, "OFF", f"10-hour Rest Break ({reason})", location)
+        
+        # Check if we need to fill time until midnight
+        current_time = self.current_time
+        next_midnight = datetime.datetime.combine(current_time.date() + datetime.timedelta(days=1), datetime.time.min)
+        
+        # If current time is not at midnight, fill the gap with OFF duty first
+        if current_time.time() != datetime.time.min or current_time.date() != current_time.date():
+            seconds_until_midnight = (next_midnight - current_time).total_seconds()
+            
+            if seconds_until_midnight > 0:
+                # Add OFF-duty activity until midnight
+                logger.info(f"[{current_time}] Filling {seconds_until_midnight/3600:.2f} hours until midnight with OFF duty.")
+                self.add_activity(seconds_until_midnight, "OFF", "Off Duty / Rest", location)
+        
+        # Now insert the 10-hour rest break starting from midnight
+        # Check if we're already at midnight
+        if self.current_time.time() == datetime.time.min and self.current_time.date() == self.current_time.date():
+            self.add_activity(10 * 3600, "OFF", f"10-hour Rest Break ({reason})", location)
+        else:
+            # We should be at midnight after the OFF-duty fill
+            self.add_activity(10 * 3600, "OFF", f"10-hour Rest Break ({reason})", location)
+        
+        # Reset HOS window and limits
         self.driving_since_10h_break = 0.0
         self.on_duty_since_10h_break = 0.0
         self.window_start_time = None
         self.driving_since_30m_break = 0.0
 
     def insert_restart_34h(self, location):
+        """Insert a 34-hour cycle restart break with proper midnight handling."""
         logger.info(f"[{self.current_time}] Inserting 34-hour restart at {location}.")
+        
+        # Fill until midnight first
+        current_time = self.current_time
+        next_midnight = datetime.datetime.combine(current_time.date() + datetime.timedelta(days=1), datetime.time.min)
+        
+        if current_time.time() != datetime.time.min or current_time.date() != current_time.date():
+            seconds_until_midnight = (next_midnight - current_time).total_seconds()
+            if seconds_until_midnight > 0:
+                logger.info(f"[{current_time}] Filling {seconds_until_midnight/3600:.2f} hours until midnight with OFF duty.")
+                self.add_activity(seconds_until_midnight, "OFF", "Off Duty / Rest", location)
+        
+        # Now insert the 34-hour restart
         self.add_activity(34 * 3600, "OFF", "34-hour Cycle Restart Break", location)
+        
+        # Reset all limits and cycle hours
         self.driving_since_10h_break = 0.0
         self.on_duty_since_10h_break = 0.0
         self.window_start_time = None
@@ -79,8 +121,23 @@ class HOSSimulator:
         self.cycle_used_seconds = 0.0
 
     def insert_break_30m(self, location):
+        """Insert a 30-minute rest break with proper time handling."""
         logger.info(f"[{self.current_time}] Inserting 30-minute break at {location}.")
-        self.add_activity(30 * 60, "OFF", "30-minute Rest Break", location)
+        
+        # Check if we need to fill to midnight first
+        current_time = self.current_time
+        next_midnight = datetime.datetime.combine(current_time.date() + datetime.timedelta(days=1), datetime.time.min)
+        seconds_until_midnight = (next_midnight - current_time).total_seconds()
+        
+        # If there's not enough time for a 30-minute break before midnight, 
+        # fill to midnight and start the break at midnight
+        if seconds_until_midnight < 30 * 60 and seconds_until_midnight > 0:
+            self.add_activity(seconds_until_midnight, "OFF", "Off Duty / Rest", location)
+            # The break will start at midnight
+            self.add_activity(30 * 60, "OFF", "30-minute Rest Break", location)
+        else:
+            self.add_activity(30 * 60, "OFF", "30-minute Rest Break", location)
+        
         self.driving_since_30m_break = 0.0
 
     def insert_fueling(self, location):
@@ -89,7 +146,7 @@ class HOSSimulator:
         self.miles_since_fuel = 0.0
 
     def simulate_driving_leg(self, distance_miles, start_location, end_location):
-        """Simulate driving - creates a single continuous driving block when possible."""
+        """Simulate driving with proper HOS compliance and midnight handling."""
         self.current_location = start_location
         
         if distance_miles <= 0:
@@ -99,21 +156,18 @@ class HOSSimulator:
         
         logger.info(f"Driving from {start_location} to {end_location}: {distance_miles:.1f} miles, {total_driving_seconds/3600:.2f} hours")
         
-        # Track how much we've driven
         remaining_seconds = total_driving_seconds
         current_segment_start = self.current_time
         
         while remaining_seconds > 0:
             # Check 70-hour cycle limit
             if self.cycle_used_seconds + remaining_seconds > 70 * 3600:
-                # Can only drive up to the limit
                 max_drive = 70 * 3600 - self.cycle_used_seconds
                 if max_drive > 0:
-                    # Drive as much as possible before hitting the limit
                     drive_time = max_drive
                     self.add_activity(drive_time, "D", 
-                                     f"Driving from {start_location} to {end_location}", 
-                                     start_location if self.miles_since_fuel < 100 else "En Route")
+                                    f"Driving from {start_location} to {end_location}", 
+                                    start_location if self.miles_since_fuel < 100 else "En Route")
                     remaining_seconds -= drive_time
                 self.insert_restart_34h(self.current_location)
                 continue
@@ -124,10 +178,12 @@ class HOSSimulator:
                 max_drive = 11 * 3600 - self.driving_since_10h_break
                 if max_drive > 0:
                     self.add_activity(max_drive, "D", 
-                                     f"Driving from {start_location} to {end_location}",
-                                     start_location if self.miles_since_fuel < 100 else "En Route")
+                                    f"Driving from {start_location} to {end_location}",
+                                    "En Route")
                     remaining_seconds -= max_drive
-                self.insert_break_10h("11-Hour Driving Limit Reached", "En Route")
+                # The driver has reached the 11-hour limit
+                # The insert_break_10h function will handle filling to midnight
+                self.insert_break_10h("11-Hour Driving Limit Reached", "Rest Area")
                 continue
             
             # Check 14-hour window
@@ -137,10 +193,10 @@ class HOSSimulator:
                     max_drive = 14 * 3600 - elapsed_window
                     if max_drive > 0:
                         self.add_activity(max_drive, "D", 
-                                         f"Driving from {start_location} to {end_location}",
-                                         start_location if self.miles_since_fuel < 100 else "En Route")
+                                        f"Driving from {start_location} to {end_location}",
+                                        "En Route")
                         remaining_seconds -= max_drive
-                    self.insert_break_10h("14-Hour Window Limit Reached", "En Route")
+                    self.insert_break_10h("14-Hour Window Limit Reached", "Rest Area")
                     continue
             
             # Check 30-minute break requirement (8-hour rule)
@@ -148,8 +204,8 @@ class HOSSimulator:
                 max_drive = 8 * 3600 - self.driving_since_30m_break
                 if max_drive > 0:
                     self.add_activity(max_drive, "D", 
-                                     f"Driving from {start_location} to {end_location}",
-                                     start_location if self.miles_since_fuel < 100 else "En Route")
+                                    f"Driving from {start_location} to {end_location}",
+                                    "En Route")
                     remaining_seconds -= max_drive
                 self.insert_break_30m("En Route")
                 continue
@@ -157,21 +213,20 @@ class HOSSimulator:
             # Check fueling (every 1,000 miles)
             miles_remaining = (remaining_seconds / 3600.0) * self.speed_mph
             if self.miles_since_fuel + miles_remaining > 1000.0:
-                # Drive until we hit 1000 miles
                 miles_to_fuel = 1000.0 - self.miles_since_fuel
                 drive_to_fuel = (miles_to_fuel / self.speed_mph) * 3600.0
                 if drive_to_fuel > 0:
                     self.add_activity(drive_to_fuel, "D", 
-                                     f"Driving from {start_location} to {end_location}",
-                                     start_location)
+                                    f"Driving from {start_location} to {end_location}",
+                                    "En Route")
                     remaining_seconds -= drive_to_fuel
-                self.insert_fueling("En Route")
+                self.insert_fueling("Fuel Stop")
                 continue
             
             # All checks passed - drive the remaining distance
             self.add_activity(remaining_seconds, "D", 
-                             f"Driving from {start_location} to {end_location}",
-                             end_location)
+                            f"Driving from {start_location} to {end_location}",
+                            end_location)
             remaining_seconds = 0
         
         self.current_location = end_location
@@ -225,7 +280,10 @@ def run_trip_simulation(start_time, initial_cycle_used, speed_mph,
 
 
 def partition_activities_into_days(activities, start_time):
-    """Partition activities into 24-hour calendar days with proper OFF duty filling."""
+    """
+    Partition activities into 24-hour calendar days with proper OFF duty filling.
+    Ensures no gaps exist between activities and midnight.
+    """
     if not activities:
         return []
     
@@ -256,13 +314,11 @@ def partition_activities_into_days(activities, start_time):
         
         # If activity starts on a future date, fill the gap with OFF duty
         if act_start.date() > current_date:
-            # Fill remaining time with OFF duty
             filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
             remaining_seconds = 24 * 3600.0 - filled_seconds
             
             if remaining_seconds > 0:
                 last_loc = day_activities[-1]["location"] if day_activities else "Start"
-                # Calculate the start time of the OFF activity
                 off_start = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds)
                 off_end = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=24*3600)
                 off_activity = {
@@ -286,10 +342,12 @@ def partition_activities_into_days(activities, start_time):
         
         next_midnight = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(days=1)
         
+        # If activity crosses midnight, split it
         if act_end > next_midnight:
             duration_before = (next_midnight - act_start).total_seconds()
             duration_after = (act_end - next_midnight).total_seconds()
             
+            # Activity before midnight
             day_activities.append({
                 "start": act_start,
                 "end": next_midnight,
@@ -305,9 +363,8 @@ def partition_activities_into_days(activities, start_time):
                 # Fill remaining with OFF duty
                 remaining = 24 * 3600 - filled_seconds
                 last_loc = day_activities[-1]["location"] if day_activities else "Start"
-                off_start = datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds)
                 off_activity = {
-                    "start": off_start,
+                    "start": datetime.datetime.combine(current_date, datetime.time.min) + datetime.timedelta(seconds=filled_seconds),
                     "end": next_midnight,
                     "duration_hours": remaining / 3600.0,
                     "status": "OFF",
@@ -324,6 +381,7 @@ def partition_activities_into_days(activities, start_time):
             current_date = current_date + datetime.timedelta(days=1)
             day_activities = []
             
+            # Remaining part of the activity goes into next day
             new_act = act.copy()
             new_act["start"] = next_midnight
             new_act["end"] = act_end
@@ -331,6 +389,7 @@ def partition_activities_into_days(activities, start_time):
             activities[i] = new_act
             continue
         
+        # Activity fits in the current day
         day_activities.append(act)
         i += 1
     
@@ -338,11 +397,12 @@ def partition_activities_into_days(activities, start_time):
     if day_activities:
         filled_seconds = sum(a["duration_hours"] * 3600.0 for a in day_activities)
         remaining_seconds = 24 * 3600.0 - filled_seconds
+        
         if remaining_seconds > 0:
             last_loc = day_activities[-1]["location"] if day_activities else "Start"
             last_end = day_activities[-1]["end"] if day_activities else datetime.datetime.combine(current_date, datetime.time.min)
             
-            # If last_end is already at midnight, don't add more
+            # Only add if there's actually remaining time
             if last_end.time() != datetime.time.min or last_end.date() != current_date + datetime.timedelta(days=1):
                 off_activity = {
                     "start": last_end,
