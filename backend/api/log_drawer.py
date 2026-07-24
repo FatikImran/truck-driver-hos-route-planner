@@ -295,14 +295,20 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # duty filler), draw a bracket ("bucket") that hugs the exact start/end
     # boundaries of that stop on the grid. From the point where the driver's
     # status changed into the stop, a leader line drops straight down, then
-    # bends about 45 degrees just before the remark itself — the truck's
-    # location on top, the activity performed underneath, both slanted to
-    # read along that bend.
+    # bends slightly just before the remark itself — the truck's location on
+    # top, the activity performed underneath, both slanted to read along that
+    # bend.
     try:
         grid_bottom = 256   # common bottom rim every bucket hangs down to
         bucket_gap = 2      # small clearance so ticks don't touch the duty line
 
-        diag_span = 12       # size of the ~45 degree bend near the remark
+        # The bend near the remark: measured from vertical, so a SMALLER value
+        # here means the leader stays straighter/more vertical for longer,
+        # which keeps back-to-back stops from merging into each other.
+        bend_angle_from_vertical_deg = 18
+        bend_len = 17
+        diag_dx = bend_len * math.sin(math.radians(bend_angle_from_vertical_deg))
+        diag_dy = bend_len * math.cos(math.radians(bend_angle_from_vertical_deg))
         text_slant_deg = -25  # fixed, gentle slant so remarks stay legible
 
         num_lanes = 3
@@ -336,8 +342,8 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             )
 
             target_y = first_row_y + lane * lane_row_height
-            mid_y = target_y - diag_span
-            target_x = x1 - diag_span
+            mid_y = target_y - diag_dy
+            target_x = x1 - diag_dx
             lane_reach[lane] = target_x - est_width
 
             # --- Leader line: straight down, then a short 45-degree bend ---
@@ -349,6 +355,11 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
                 img, (target_x, target_y), location_text, activity_text,
                 font_sm, 'black', text_slant_deg
             )
+
+        # --- Total hours driven today: the last remark, plain text only ---
+        # No bucket and no leader line for this one, per spec.
+        total_driven_hours = totals.get("D", 0.0)
+        draw.text((15, 405), f"{total_driven_hours:.1f}", fill='black', font=font)
     except Exception as e:
         logger.error(f"Error drawing remarks: {e}")
 
