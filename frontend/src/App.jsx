@@ -194,7 +194,7 @@ function App() {
           border: 3px solid white; 
           box-shadow: 0 0 30px rgba(37, 99, 235, 0.5), 0 4px 16px rgba(0,0,0,0.3);
           transform: translateY(${offsetY}px);
-          transition: transform 0.05s linear;
+          transition: transform 0.03s linear;
         ">🚛</div>`,
         className: 'truck-marker',
         iconSize: [44, 44],
@@ -209,7 +209,7 @@ function App() {
 
     // Start bounce animation
     let lastTime = 0;
-    const bounceSpeed = 0.35; // Slower for more visible bounce
+    const bounceSpeed = 0.55; // Faster, more energetic bounce
 
     const animateBounce = (timestamp) => {
       if (!truckMarkerRef.current) return;
@@ -220,11 +220,11 @@ function App() {
       // Simple up/down motion
       bounceOffsetRef.current += bounceDirectionRef.current * delta * bounceSpeed;
       
-      if (bounceOffsetRef.current > 20) {
-        bounceOffsetRef.current = 20;
+      if (bounceOffsetRef.current > 30) {
+        bounceOffsetRef.current = 30;
         bounceDirectionRef.current = -1;
-      } else if (bounceOffsetRef.current < -8) {
-        bounceOffsetRef.current = -8;
+      } else if (bounceOffsetRef.current < -12) {
+        bounceOffsetRef.current = -12;
         bounceDirectionRef.current = 1;
       }
 
