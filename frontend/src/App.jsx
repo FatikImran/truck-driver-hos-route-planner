@@ -58,6 +58,7 @@ function App() {
   const [animationProgress, setAnimationProgress] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [fullRoutePath, setFullRoutePath] = useState([]);
+  const fullRoutePathRef = useRef([]); // always-current mirror of fullRoutePath, read by animateRoute()
   const animationRef = useRef(null);
 
   // Map Refs
@@ -129,7 +130,12 @@ function App() {
       });
     }
     
-    // Store full path for animation
+    // Store full path for animation. The ref is updated synchronously so
+    // animateRoute() -- which may be called moments later from the same
+    // setTimeout chain, off a closure created before this state update
+    // lands -- always sees the freshly computed path instead of a stale
+    // (often empty) value from whenever its closure was created.
+    fullRoutePathRef.current = fullPath;
     setFullRoutePath(fullPath);
 
     // Add Markers
@@ -174,7 +180,8 @@ function App() {
   // ============================================
   const animateRoute = () => {
     const L = window.L;
-    if (!L || !mapInstanceRef.current || fullRoutePath.length < 2) {
+    const routePath = fullRoutePathRef.current;
+    if (!L || !mapInstanceRef.current || routePath.length < 2) {
       return;
     }
     
@@ -213,7 +220,7 @@ function App() {
     });
     
     // Add the truck marker at the start
-    animationMarkerRef.current = L.marker(fullRoutePath[0], { icon: truckIcon })
+    animationMarkerRef.current = L.marker(routePath[0], { icon: truckIcon })
       .addTo(mapInstanceRef.current)
       .bindPopup('🚛 Current Position');
     
@@ -223,15 +230,15 @@ function App() {
       const progress = Math.min(elapsed / totalDuration, 1);
       
       // Get the position on the path
-      const totalPoints = fullRoutePath.length;
+      const totalPoints = routePath.length;
       const index = Math.floor(progress * (totalPoints - 1));
       const nextIndex = Math.min(index + 1, totalPoints - 1);
       
       if (index < totalPoints - 1 && animationMarkerRef.current) {
         // Smooth interpolation between points
         const fraction = (progress * (totalPoints - 1)) - index;
-        const lat = fullRoutePath[index][0] + (fullRoutePath[nextIndex][0] - fullRoutePath[index][0]) * fraction;
-        const lng = fullRoutePath[index][1] + (fullRoutePath[nextIndex][1] - fullRoutePath[index][1]) * fraction;
+        const lat = routePath[index][0] + (routePath[nextIndex][0] - routePath[index][0]) * fraction;
+        const lng = routePath[index][1] + (routePath[nextIndex][1] - routePath[index][1]) * fraction;
         
         animationMarkerRef.current.setLatLng([lat, lng]);
         setAnimationProgress(progress * 100);
@@ -248,8 +255,8 @@ function App() {
       } else {
         setIsAnimating(false);
         // Update marker to final position
-        if (animationMarkerRef.current && fullRoutePath.length > 0) {
-          const finalPos = fullRoutePath[fullRoutePath.length - 1];
+        if (animationMarkerRef.current && routePath.length > 0) {
+          const finalPos = routePath[routePath.length - 1];
           animationMarkerRef.current.setLatLng(finalPos);
           animationMarkerRef.current.setPopupContent('✅ Trip Complete!');
           
