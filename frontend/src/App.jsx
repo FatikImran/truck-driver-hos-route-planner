@@ -17,6 +17,35 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const SUGGESTION_DEBOUNCE_MS = 350;
 const SUGGESTION_MIN_CHARS = 2;
 
+const CARRIER_STORAGE_KEY = 'spotter_carrier_details';
+const DEFAULT_CARRIER_DETAILS = {
+  carrierName: 'Spotter Logistics LLC',
+  mainOffice: '123 Main St, Dallas, TX',
+  homeTerminal: '456 Safety Rd, Dallas, TX',
+  truckTrailer: 'Truck #101 / Trailer #202',
+};
+
+// Reads saved carrier/truck details from localStorage, falling back to
+// defaults for anything missing or if storage is unavailable/corrupt
+// (private browsing, disabled storage, hand-edited JSON, etc.) so a bad
+// value never breaks the form on load.
+function loadCarrierDetails() {
+  try {
+    const raw = localStorage.getItem(CARRIER_STORAGE_KEY);
+    if (!raw) return DEFAULT_CARRIER_DETAILS;
+    const parsed = JSON.parse(raw);
+    return {
+      carrierName: typeof parsed.carrierName === 'string' ? parsed.carrierName : DEFAULT_CARRIER_DETAILS.carrierName,
+      mainOffice: typeof parsed.mainOffice === 'string' ? parsed.mainOffice : DEFAULT_CARRIER_DETAILS.mainOffice,
+      homeTerminal: typeof parsed.homeTerminal === 'string' ? parsed.homeTerminal : DEFAULT_CARRIER_DETAILS.homeTerminal,
+      truckTrailer: typeof parsed.truckTrailer === 'string' ? parsed.truckTrailer : DEFAULT_CARRIER_DETAILS.truckTrailer,
+    };
+  } catch (err) {
+    console.warn('Could not read saved carrier details, using defaults:', err);
+    return DEFAULT_CARRIER_DETAILS;
+  }
+}
+
 // ============================================
 // LOCATION AUTOCOMPLETE INPUT
 // ============================================
@@ -210,10 +239,23 @@ function App() {
   });
   const [speedMph, setSpeedMph] = useState(55);
 
-  const [carrierName, setCarrierName] = useState('Spotter Logistics LLC');
-  const [mainOffice, setMainOffice] = useState('123 Main St, Dallas, TX');
-  const [homeTerminal, setHomeTerminal] = useState('456 Safety Rd, Dallas, TX');
-  const [truckTrailer, setTruckTrailer] = useState('Truck #101 / Trailer #202');
+  const [carrierDetails, setCarrierDetails] = useState(loadCarrierDetails);
+  const { carrierName, mainOffice, homeTerminal, truckTrailer } = carrierDetails;
+
+  // Persist carrier/truck details to localStorage whenever they change, so
+  // they survive a page refresh instead of resetting to defaults.
+  useEffect(() => {
+    try {
+      localStorage.setItem(CARRIER_STORAGE_KEY, JSON.stringify(carrierDetails));
+    } catch (err) {
+      console.warn('Could not save carrier details:', err);
+    }
+  }, [carrierDetails]);
+
+  const setCarrierName = (value) => setCarrierDetails((prev) => ({ ...prev, carrierName: value }));
+  const setMainOffice = (value) => setCarrierDetails((prev) => ({ ...prev, mainOffice: value }));
+  const setHomeTerminal = (value) => setCarrierDetails((prev) => ({ ...prev, homeTerminal: value }));
+  const setTruckTrailer = (value) => setCarrierDetails((prev) => ({ ...prev, truckTrailer: value }));
 
   // ============================================
   // APP STATES
