@@ -14,20 +14,26 @@ def time_to_hours(dt):
     """Convert datetime object to hours from midnight (0.0 to 24.0)."""
     return dt.hour + dt.minute / 60.0 + dt.second / 3600.0
 
-def _draw_rotated_text(img, anchor_xy, text, font, fill, angle_deg):
+def _draw_rotated_remark_text(img, anchor_xy, location_text, activity_text, font, fill, angle_deg, line_spacing=2):
     """
-    Draw `text` onto `img`, rotated so it reads along a diagonal leader line.
+    Draw a two-line remark (truck location on top, activity/duty performed on
+    the bottom) onto `img`, slanted at angle_deg so it reads along a diagonal
+    leader line.
 
-    anchor_xy is treated as BOTH the rotation pivot AND the point where the
-    left-middle of the text sits — so the text always starts exactly at
-    anchor_xy no matter what angle it's rotated to.
+    anchor_xy is the point where the leader line's bend ends. It's treated as
+    the RIGHT-MIDDLE of the (two-line) text block and used as the rotation
+    pivot, so with a gentle upward-right angle_deg the text always trails
+    down-and-to-the-left of anchor_xy — i.e. away from the grid above it,
+    regardless of which side of its bucket the leader line approaches from.
 
-    angle_deg is the direction of the diagonal in standard image pixel space
-    (0 = pointing right, positive = downward-right), i.e. math.degrees(
-    math.atan2(dy, dx)) using pixel dx/dy where y grows downward.
+    angle_deg follows the same convention as elsewhere in this module: 0
+    points right, positive is downward-right, in standard image pixel space
+    (atan2(dy, dx) with y growing downward).
     """
+    text = f"{location_text}\n{activity_text}"
+
     dummy = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
-    bbox = dummy.textbbox((0, 0), text, font=font)
+    bbox = dummy.multiline_textbbox((0, 0), text, font=font, spacing=line_spacing, align='right')
     tw = max(bbox[2] - bbox[0], 1)
     th = max(bbox[3] - bbox[1], 1)
 
@@ -36,7 +42,7 @@ def _draw_rotated_text(img, anchor_xy, text, font, fill, angle_deg):
     half = int(math.hypot(tw, th)) + 8
     canvas = Image.new('RGBA', (half * 2, half * 2), (255, 255, 255, 0))
     cdraw = ImageDraw.Draw(canvas)
-    cdraw.text((half, half), text, font=font, fill=fill, anchor='lm')
+    cdraw.multiline_text((half, half), text, font=font, fill=fill, anchor='rm', align='right', spacing=line_spacing)
 
     # PIL's rotate() is counter-clockwise-positive in pixel space, which is
     # the opposite sense of our atan2(dy, dx) (y grows downward), so negate.
@@ -283,57 +289,66 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         logger.error(f"Error drawing totals: {e}")
 
     # =========================================================================
-    # REMARKS SECTION — bucket brackets + diagonal leaders below the grid
+    # REMARKS SECTION — bucket brackets + drop-then-bend leaders below the grid
     # =========================================================================
     # For every stop (any period the truck isn't moving, other than plain OFF
     # duty filler), draw a bracket ("bucket") that hugs the exact start/end
-    # boundaries of that stop on the grid, a diagonal leader line running from
-    # the point where the driver's status changed into the stop, down to a
-    # remark slot, and the remark text itself written along that diagonal.
+    # boundaries of that stop on the grid. From the point where the driver's
+    # status changed into the stop, a leader line drops straight down, then
+    # bends about 45 degrees just before the remark itself — the truck's
+    # location on top, the activity performed underneath, both slanted to
+    # read along that bend.
     try:
         grid_bottom = 256   # common bottom rim every bucket hangs down to
         bucket_gap = 2      # small clearance so ticks don't touch the duty line
 
-        col_x_positions = [15, 255]
-        row_height = 18
-        max_rows_per_col = 9
+        diag_span = 12       # size of the ~45 degree bend near the remark
+        text_slant_deg = -25  # fixed, gentle slant so remarks stay legible
 
-        max_remarks = len(col_x_positions) * max_rows_per_col
-        for idx, target in enumerate(remark_targets[:max_remarks]):
-            x1, x2, y_val, act = target["x1"], target["x2"], target["y_val"], target["act"]
+        num_lanes = 3
+        lane_row_height = 34
+        first_row_y = 286
+        lane_reach = [-1e9] * num_lanes  # leftmost x each lane's text currently extends to
+
+        def estimate_text_width(s):
+            return int(len(s) * 5.2) + 6  # rough px width for font_sm-sized text
+
+        for target in remark_targets:
+            x1, y_val, act = target["x1"], target["y_val"], target["act"]
 
             # --- Bucket: brackets the stop's exact time span on the grid ---
             top_y = y_val + bucket_gap
             draw.line([(x1, top_y), (x1, grid_bottom)], fill='blue', width=1)
-            draw.line([(x2, top_y), (x2, grid_bottom)], fill='blue', width=1)
-            draw.line([(x1, grid_bottom), (x2, grid_bottom)], fill='blue', width=1)
+            draw.line([(target["x2"], top_y), (target["x2"], grid_bottom)], fill='blue', width=1)
+            draw.line([(x1, grid_bottom), (target["x2"], grid_bottom)], fill='blue', width=1)
 
-            # --- Where the remark text will sit ---
-            col = idx // max_rows_per_col
-            row = idx % max_rows_per_col
-            target_x = col_x_positions[col]
-            target_y = 272 + row * row_height
+            # --- Remark content ---
+            location_text = act["location"][:22]
+            activity_text = act["description"][:22]
+            est_width = max(estimate_text_width(location_text), estimate_text_width(activity_text))
 
-            # The diagonal starts at the LEFT edge of the bucket: the instant
-            # the driver's duty status changed into this stop.
-            anchor_x, anchor_y = x1, grid_bottom
-            draw.line([(anchor_x, anchor_y), (target_x, target_y)], fill='blue', width=1)
+            # --- Pick the first lane whose previous remark won't collide ---
+            # (a lane is free if its last text doesn't reach as far right as
+            # this stop's start)
+            lane = next(
+                (l for l in range(num_lanes) if lane_reach[l] < x1 - 15),
+                min(range(num_lanes), key=lambda l: lane_reach[l]),
+            )
 
-            # --- Remark text, rotated to follow that same diagonal ---
-            start_str = act["start"].strftime("%I:%M %p").lstrip("0")
-            desc = act["description"]
-            loc = act["location"]
-            remark_text = f"{start_str} {desc} ({loc})"[:34]
+            target_y = first_row_y + lane * lane_row_height
+            mid_y = target_y - diag_span
+            target_x = x1 - diag_span
+            lane_reach[lane] = target_x - est_width
 
-            dx = target_x - anchor_x
-            dy = target_y - anchor_y
-            # Keep the text reading left-to-right (never upside-down/backwards):
-            # if the slot sits to the left of its grid point, flip the vector
-            # so the text instead extends back toward the grid point.
-            if dx < 0:
-                dx, dy = -dx, -dy
-            angle_deg = math.degrees(math.atan2(dy, dx))
-            _draw_rotated_text(img, (target_x, target_y), remark_text, font_sm, 'black', angle_deg)
+            # --- Leader line: straight down, then a short 45-degree bend ---
+            draw.line([(x1, grid_bottom), (x1, mid_y)], fill='blue', width=1)
+            draw.line([(x1, mid_y), (target_x, target_y)], fill='blue', width=1)
+
+            # --- The remark itself: location above, activity below ---
+            _draw_rotated_remark_text(
+                img, (target_x, target_y), location_text, activity_text,
+                font_sm, 'black', text_slant_deg
+            )
     except Exception as e:
         logger.error(f"Error drawing remarks: {e}")
 
