@@ -1,4 +1,5 @@
 import math
+import time
 import requests
 import logging
 
@@ -158,3 +159,123 @@ def get_route_details(lat1, lon1, lat2, lon2, speed_mph=55.0):
         "driving_time_hours": driving_time_hours,
         "route_path": route_path
     }
+
+
+_STATE_ABBREVIATIONS = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV",
+    "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
+}
+
+
+def _state_abbreviation(state_name):
+    """Best-effort full state name -> USPS abbreviation; falls back to the input."""
+    if not state_name:
+        return state_name
+    return _STATE_ABBREVIATIONS.get(state_name.strip().lower(), state_name)
+
+
+_last_nominatim_call = 0.0
+
+
+def _nominatim_rate_limit():
+    """Nominatim's usage policy asks for at most ~1 request/second."""
+    global _last_nominatim_call
+    elapsed = time.monotonic() - _last_nominatim_call
+    if elapsed < 1.0:
+        time.sleep(1.0 - elapsed)
+    _last_nominatim_call = time.monotonic()
+
+
+def reverse_geocode(lat, lon):
+    """
+    Resolve (latitude, longitude) to a human-readable "City, ST" name using
+    Nominatim's reverse endpoint, with a fallback to the nearest city in our
+    local database if the API is unavailable or the request fails.
+    """
+    try:
+        _nominatim_rate_limit()
+        url = "https://nominatim.openstreetmap.org/reverse"
+        headers = {
+            "User-Agent": "SpotterHOSPlanner/1.0 (fatik@example.com)"
+        }
+        params = {
+            "lat": lat,
+            "lon": lon,
+            "format": "json",
+            "zoom": 12,
+        }
+        response = requests.get(url, params=params, headers=headers, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            address = data.get("address", {})
+            city = (
+                address.get("city") or address.get("town")
+                or address.get("village") or address.get("hamlet")
+                or address.get("county")
+            )
+            state = address.get("state")
+            if city and state:
+                result = f"{city}, {_state_abbreviation(state)}"
+                logger.info(f"Reverse geocoded ({lat}, {lon}) -> {result}")
+                return result
+            if city:
+                logger.info(f"Reverse geocoded ({lat}, {lon}) -> {city}")
+                return city
+    except Exception as e:
+        logger.warning(f"Reverse geocoding failed for ({lat}, {lon}): {e}")
+
+    # Fallback: nearest city in our local database
+    nearest_city, nearest_dist = None, float("inf")
+    for city, (city_lat, city_lon) in US_CITIES_COORDS.items():
+        dist = haversine_distance(lat, lon, city_lat, city_lon)
+        if dist < nearest_dist:
+            nearest_city, nearest_dist = city, dist
+    if nearest_city:
+        logger.info(f"Reverse geocode fallback: nearest known city to ({lat}, {lon}) is {nearest_city}")
+        return f"Near {nearest_city.title()}"
+
+    return "En Route"
+
+
+def interpolate_position_along_path(path, target_distance_miles):
+    """
+    Walk a route_path (list of [lat, lon] points, in travel order) and return
+    the (lat, lon) that sits `target_distance_miles` along it, linearly
+    interpolating between whichever two points straddle that distance.
+
+    Returns None if `path` is empty. Clamps to the first/last point if
+    `target_distance_miles` is outside the path's range.
+    """
+    if not path:
+        return None
+    if len(path) == 1 or target_distance_miles <= 0:
+        return path[0][0], path[0][1]
+
+    covered = 0.0
+    for i in range(1, len(path)):
+        lat1, lon1 = path[i - 1]
+        lat2, lon2 = path[i]
+        seg_dist = haversine_distance(lat1, lon1, lat2, lon2)
+
+        if covered + seg_dist >= target_distance_miles:
+            remaining = target_distance_miles - covered
+            frac = (remaining / seg_dist) if seg_dist > 0 else 0.0
+            lat = lat1 + (lat2 - lat1) * frac
+            lon = lon1 + (lon2 - lon1) * frac
+            return lat, lon
+
+        covered += seg_dist
+
+    # Requested distance is beyond the path's total length — clamp to the end.
+    return path[-1][0], path[-1][1]

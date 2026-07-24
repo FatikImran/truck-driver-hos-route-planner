@@ -7,7 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.utils.dateparse import parse_datetime
 
-from .routing_helper import geocode_location, get_route_details
+from .routing_helper import geocode_location, get_route_details, reverse_geocode, interpolate_position_along_path
 from .hos_engine import run_trip_simulation, partition_activities_into_days
 from .log_drawer import draw_daily_log
 
@@ -22,123 +22,55 @@ def api_root(request):
     })
 
 
-def get_location_at_distance(path, target_distance_miles):
+def resolve_stop_location(desc, status, running_driving_miles, leg1, leg2,
+                          current_name, pickup_name, dropoff_name, location_cache):
     """
-    Get the approximate location at a given distance along the route.
-    Returns a descriptive location name.
-    """
-    if not path or len(path) < 2:
-        return None
-    
-    total_distance = 0
-    for i in range(1, len(path)):
-        lat1, lon1 = path[i-1]
-        lat2, lon2 = path[i]
-        # Approximate distance in miles
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        dist = ((dlat * 69)**2 + (dlon * 54.6)**2)**0.5
-        total_distance += dist
-        
-        if total_distance >= target_distance_miles:
-            # Return a simplified location name based on progress
-            progress = total_distance / target_distance_miles if target_distance_miles > 0 else 0
-            if progress < 0.25:
-                return "En Route (Start)"
-            elif progress < 0.5:
-                return "En Route (25%)"
-            elif progress < 0.75:
-                return "En Route (50%)"
-            else:
-                return "En Route (75%)"
-    
-    return None
+    Determine the real-world location for a non-driving activity.
 
+    Stops tied to the trip's own named points (pre/post-trip, loading,
+    unloading) use those names directly. Everything else — fueling stops,
+    rest breaks, restarts, scale stops, etc. — gets resolved to the truck's
+    actual position along the route: `running_driving_miles` (how far the
+    truck has driven so far, across both legs) is used to find the matching
+    point on whichever leg's path it falls on, which is then reverse-geocoded
+    to a real "City, ST" name instead of a generic placeholder.
 
-def get_location_for_activity(activity, leg1_path, leg2_path, leg1_dist, leg2_dist, 
-                              current_name, pickup_name, dropoff_name):
+    `location_cache` is a dict the caller keeps across activities so nearby
+    stops (within about a mile of each other) reuse one geocoding lookup
+    instead of hitting the API again.
     """
-    Determine the appropriate location for a given activity based on its description
-    and position in the trip.
-    """
-    desc = activity.get("description", "")
-    location = activity.get("location", "")
-    
-    # If location is already set and not generic, use it
-    if location and location not in ["En Route", "Start"]:
-        return location
-    
-    # Determine based on description
-    if "Pre-trip" in desc or "Post-trip" in desc:
-        if "Pre-trip" in desc:
-            return current_name
-        else:
-            return dropoff_name
-    
+    if "Pre-trip" in desc:
+        return current_name
     if "Loading" in desc:
         return pickup_name
-    
     if "Unloading" in desc:
         return dropoff_name
-    
-    if "Fueling" in desc:
-        return "Fuel Stop"
-    
-    if "Rest Break" in desc or "Restart" in desc:
-        # Check what activity came before
-        return "Rest Area"
-    
-    if "Driving" in desc:
-        # Determine which leg this is
-        driving_time = activity.get("duration_hours", 0)
-        leg1_time = leg1_dist / 55.0 if leg1_dist > 0 else 0
-        leg2_time = leg2_dist / 55.0 if leg2_dist > 0 else 0
-        
-        # Check if this is leg 1 or leg 2 based on context
-        if "El Paso" in desc or pickup_name in desc:
-            return pickup_name
-        elif "Los Angeles" in desc or dropoff_name in desc:
-            return dropoff_name
-        else:
-            # Try to determine based on progress
-            return "En Route"
-    
-    return location or "En Route"
+    if "Post-trip" in desc:
+        return dropoff_name
 
+    # Fueling, rest breaks, restarts, scale stops, and anything else that
+    # happens somewhere out on the route: resolve the truck's real position.
+    leg1_dist = leg1["distance_miles"]
+    if running_driving_miles <= leg1_dist:
+        path = leg1["route_path"]
+        local_distance = running_driving_miles
+    else:
+        path = leg2["route_path"]
+        local_distance = running_driving_miles - leg1_dist
 
-def get_corrected_location(activity, leg1_path, leg2_path, leg1_dist, leg2_dist,
-                           current_name, pickup_name, dropoff_name):
-    """
-    Correct the location for an activity based on its context in the trip.
-    """
-    desc = activity.get("description", "")
-    status = activity.get("status", "")
-    
-    # Driving activities - determine which leg
-    if status == "D" and "Driving" in desc:
-        return "En Route"  # Change this
-    
-    # On-duty non-driving activities
-    if status == "ON":
-        if "Pre-trip" in desc:
-            return current_name
-        elif "Loading" in desc:
-            return pickup_name
-        elif "Unloading" in desc:
-            return dropoff_name
-        elif "Post-trip" in desc:
-            return dropoff_name
-        elif "Fueling" in desc:
-            return "Fuel Stop"
-    
-    # Off-duty activities
-    if status == "OFF":
-        if "Rest Break" in desc or "Restart" in desc:
-            return "Rest Area"
-        else:
-            return "Off Duty"
-    
-    return activity.get("location", "En Route")
+    cache_key = round(local_distance)  # one lookup per ~mile of route
+    if cache_key in location_cache:
+        return location_cache[cache_key]
+
+    try:
+        point = interpolate_position_along_path(path, local_distance)
+        resolved = reverse_geocode(point[0], point[1]) if point else "En Route"
+    except Exception as e:
+        logger.warning(f"Location resolution failed at {local_distance:.1f}mi into leg: {e}")
+        resolved = "En Route"
+
+    location_cache[cache_key] = resolved
+    return resolved
 
 
 @csrf_exempt
@@ -275,15 +207,23 @@ def route_planner(request):
 
     # --- Correct Locations in Activities ---
     corrected_activities = []
+    running_driving_miles = 0.0
+    location_cache = {}  # shared across activities so nearby stops reuse one geocode lookup
+
     for act in activities:
         corrected_act = act.copy()
-        # Correct location based on context
-        corrected_loc = get_corrected_location(
-            act, leg1["route_path"], leg2["route_path"],
-            leg1["distance_miles"], leg2["distance_miles"],
-            display_curr, display_pick, display_drop
-        )
-        corrected_act["location"] = corrected_loc
+        desc = act.get("description", "")
+        status = act.get("status", "")
+
+        if status == "D":
+            corrected_act["location"] = "En Route"
+            running_driving_miles += act.get("duration_hours", 0.0) * speed_mph
+        else:
+            corrected_act["location"] = resolve_stop_location(
+                desc, status, running_driving_miles, leg1, leg2,
+                display_curr, display_pick, display_drop, location_cache
+            )
+
         corrected_activities.append(corrected_act)
     
     # Rebuild day partitions with corrected locations
