@@ -280,7 +280,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # The "Total Hours" column is at the far right, approximately x=469
     try:
         x_totals = 469
-        y_off_duty = 198
+        y_off_duty = 196
         y_sleeper = 212
         y_driving = 230
         y_on_duty = 246
