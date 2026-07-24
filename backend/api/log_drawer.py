@@ -14,23 +14,25 @@ def time_to_hours(dt):
     """Convert datetime object to hours from midnight (0.0 to 24.0)."""
     return dt.hour + dt.minute / 60.0 + dt.second / 3600.0
 
-def _draw_rotated_remark_text(img, anchor_xy, location_text, activity_text, font, fill, angle_deg, line_spacing=2):
+def _draw_rotated_remark_text(img, anchor_xy, lines, font, fill, angle_deg, line_spacing=2):
     """
-    Draw a two-line remark (truck location on top, activity/duty performed on
-    the bottom) onto `img`, slanted at angle_deg so it reads along a diagonal
-    leader line.
+    Draw one or more lines of remark text onto `img` (normally [location,
+    activity], but a single combined line works too), slanted at angle_deg so
+    it reads along a diagonal — or, with angle_deg=-90, running fully
+    vertical — leader line.
 
-    anchor_xy is the point where the leader line's bend ends. It's treated as
-    the RIGHT-MIDDLE of the (two-line) text block and used as the rotation
-    pivot, so with a gentle upward-right angle_deg the text always trails
-    down-and-to-the-left of anchor_xy — i.e. away from the grid above it,
-    regardless of which side of its bucket the leader line approaches from.
+    anchor_xy is the point where the leader line ends. It's treated as the
+    RIGHT-MIDDLE of the text block and used as the rotation pivot, so with a
+    gentle upward-right (or, for the vertical case, straight-up) angle_deg
+    the text always trails down (and, unless vertical, slightly left) of
+    anchor_xy — i.e. away from the grid above it — regardless of which side
+    of its bucket the leader line approaches from.
 
     angle_deg follows the same convention as elsewhere in this module: 0
     points right, positive is downward-right, in standard image pixel space
     (atan2(dy, dx) with y growing downward).
     """
-    text = f"{location_text}\n{activity_text}"
+    text = "\n".join(lines)
 
     dummy = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
     bbox = dummy.multiline_textbbox((0, 0), text, font=font, spacing=line_spacing, align='right')
@@ -104,7 +106,8 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     fonts = {
         'small': None,
         'normal': None,
-        'bold': None
+        'bold': None,
+        'xsmall': None,
     }
     
     # Try different font files
@@ -119,6 +122,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             fonts['normal'] = ImageFont.truetype(normal_font, 9)
             fonts['bold'] = ImageFont.truetype(bold_font, 10)
             fonts['small'] = ImageFont.truetype(normal_font, 8)
+            fonts['xsmall'] = ImageFont.truetype(normal_font, 6)
             break
         except:
             continue
@@ -129,12 +133,15 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             fonts['normal'] = ImageFont.load_default()
             fonts['bold'] = ImageFont.load_default()
             fonts['small'] = ImageFont.load_default()
+            fonts['xsmall'] = ImageFont.load_default()
         except:
             fonts['normal'] = ImageFont.load_default()
             fonts['bold'] = ImageFont.load_default()
             fonts['small'] = ImageFont.load_default()
+            fonts['xsmall'] = ImageFont.load_default()
     
     font_sm = fonts['small']
+    font_xs = fonts['xsmall']
     font = fonts['normal']
     bold_font = fonts['bold']
 
@@ -297,10 +304,13 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     # status changed into the stop, a leader line drops straight down, then
     # bends slightly just before the remark itself — the truck's location on
     # top, the activity performed underneath, both slanted to read along that
-    # bend.
+    # bend. Stops that happen in quick succession (little to no driving in
+    # between) switch to a compact style instead: smaller font, no bend, and
+    # the remark written fully vertical, so tightly-packed stops don't crowd
+    # into or merge with each other.
     try:
         grid_bottom = 256   # common bottom rim every bucket hangs down to
-        bucket_gap = 2      # small clearance so ticks don't touch the duty line
+        bucket_gap = 2       # small clearance so ticks don't touch the duty line
 
         # The bend near the remark: measured from vertical, so a SMALLER value
         # here means the leader stays straighter/more vertical for longer,
@@ -309,17 +319,34 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         bend_len = 17
         diag_dx = bend_len * math.sin(math.radians(bend_angle_from_vertical_deg))
         diag_dy = bend_len * math.cos(math.radians(bend_angle_from_vertical_deg))
-        text_slant_deg = -25  # fixed, gentle slant so remarks stay legible
+        text_slant_deg = -12  # fixed, gentle slant so remarks stay legible
 
         num_lanes = 3
         lane_row_height = 34
         first_row_y = 286
         lane_reach = [-1e9] * num_lanes  # leftmost x each lane's text currently extends to
 
+        # --- "Quick succession" detection ---
+        # If a stop starts less than DENSE_GAP_HOURS after the previous one
+        # ended (i.e. only a short hop of driving — or none — in between),
+        # both stops are flagged as part of a dense cluster.
+        DENSE_GAP_HOURS = 1.0
+        is_dense = [False] * len(remark_targets)
+        for i in range(1, len(remark_targets)):
+            gap_hours = (
+                remark_targets[i]["act"]["start"] - remark_targets[i - 1]["act"]["end"]
+            ).total_seconds() / 3600.0
+            if gap_hours < DENSE_GAP_HOURS:
+                is_dense[i] = True
+                is_dense[i - 1] = True
+
+        dense_row_y = grid_bottom + 16  # dense remarks sit close under the grid, no bend
+        last_dense_x = -1e9
+
         def estimate_text_width(s):
             return int(len(s) * 5.2) + 6  # rough px width for font_sm-sized text
 
-        for target in remark_targets:
+        for idx, target in enumerate(remark_targets):
             x1, y_val, act = target["x1"], target["y_val"], target["act"]
 
             # --- Bucket: brackets the stop's exact time span on the grid ---
@@ -328,14 +355,27 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             draw.line([(target["x2"], top_y), (target["x2"], grid_bottom)], fill='blue', width=1)
             draw.line([(x1, grid_bottom), (target["x2"], grid_bottom)], fill='blue', width=1)
 
-            # --- Remark content ---
+            if is_dense[idx]:
+                # --- Compact style: straight down, smaller font, one vertical line ---
+                row_y = dense_row_y if (x1 - last_dense_x) > 14 else dense_row_y + 16
+                last_dense_x = x1
+
+                draw.line([(x1, grid_bottom), (x1, row_y)], fill='blue', width=1)
+
+                combined = f"{act['location'][:14]} - {act['description'][:14]}"
+                _draw_rotated_remark_text(
+                    img, (x1, row_y), [combined], font_xs, 'black', -90
+                )
+                continue
+
+            # --- Normal style: diagonal bend, location above / activity below ---
             location_text = act["location"][:22]
             activity_text = act["description"][:22]
             est_width = max(estimate_text_width(location_text), estimate_text_width(activity_text))
 
-            # --- Pick the first lane whose previous remark won't collide ---
-            # (a lane is free if its last text doesn't reach as far right as
-            # this stop's start)
+            # Pick the first lane whose previous remark won't collide (a lane
+            # is free if its last text doesn't reach as far right as this
+            # stop's start).
             lane = next(
                 (l for l in range(num_lanes) if lane_reach[l] < x1 - 15),
                 min(range(num_lanes), key=lambda l: lane_reach[l]),
@@ -346,13 +386,13 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             target_x = x1 - diag_dx
             lane_reach[lane] = target_x - est_width
 
-            # --- Leader line: straight down, then a short 45-degree bend ---
+            # Leader line: straight down, then the shallow bend
             draw.line([(x1, grid_bottom), (x1, mid_y)], fill='blue', width=1)
             draw.line([(x1, mid_y), (target_x, target_y)], fill='blue', width=1)
 
             # --- The remark itself: location above, activity below ---
             _draw_rotated_remark_text(
-                img, (target_x, target_y), location_text, activity_text,
+                img, (target_x, target_y), [location_text, activity_text],
                 font_sm, 'black', text_slant_deg
             )
 
