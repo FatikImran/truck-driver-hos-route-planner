@@ -1009,3 +1009,35 @@ body {
     padding: 12px;
   }
 }
+
+/* ============================================
+   TRUCK ANIMATION
+   ============================================ */
+.truck-animation {
+  z-index: 1000 !important;
+}
+
+.leaflet-marker-icon.truck-animation {
+  z-index: 1000 !important;
+}
+
+.leaflet-popup-content {
+  font-size: 12px;
+  font-family: 'Outfit', sans-serif;
+}
+
+.truck-animation div {
+  animation: truckBounce 1s ease-in-out infinite;
+}
+
+@keyframes truckBounce {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
