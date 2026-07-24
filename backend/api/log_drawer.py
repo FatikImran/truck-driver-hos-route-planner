@@ -394,6 +394,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
                 # --- Compact style: straight down, smaller font, one vertical line ---
                 row_y = dense_row_y if (x1 - last_dense_x) > 14 else dense_row_y + 16
                 last_dense_x = x1
+                
 
                 draw.line([(x1, grid_bottom), (x1, row_y)], fill='blue', width=1)
 
