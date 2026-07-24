@@ -54,13 +54,6 @@ function App() {
   const [activeTab, setActiveTab] = useState('map');
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
 
-  // Animation States
-  const [animationProgress, setAnimationProgress] = useState(0);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [fullRoutePath, setFullRoutePath] = useState([]);
-  const fullRoutePathRef = useRef([]); // always-current mirror of fullRoutePath, read by animateRoute()
-  const animationRef = useRef(null);
-
   // Map Refs
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -68,7 +61,8 @@ function App() {
   const markerLayersRef = useRef([]);
   const mapInitializedRef = useRef(false);
   const mapTimeoutRef = useRef(null);
-  const animationMarkerRef = useRef(null);
+  const truckMarkerRef = useRef(null);
+  const blinkIntervalRef = useRef(null);
 
   // ============================================
   // REDRAW ROUTE FUNCTION
@@ -85,6 +79,16 @@ function App() {
     markerLayersRef.current.forEach(layer => layer.remove());
     markerLayersRef.current = [];
 
+    // Clear existing truck marker
+    if (truckMarkerRef.current) {
+      mapInstanceRef.current.removeLayer(truckMarkerRef.current);
+      truckMarkerRef.current = null;
+    }
+    if (blinkIntervalRef.current) {
+      clearInterval(blinkIntervalRef.current);
+      blinkIntervalRef.current = null;
+    }
+
     const bounds = [];
 
     const createCustomIcon = (color, text) => {
@@ -96,9 +100,6 @@ function App() {
       });
     };
 
-    // Build full route path for animation
-    const fullPath = [];
-    
     // Draw Leg 1
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
       const polyline = L.polyline(result.route.leg1.path, {
@@ -108,10 +109,7 @@ function App() {
       }).addTo(mapInstanceRef.current);
 
       pathLayersRef.current.push(polyline);
-      result.route.leg1.path.forEach(coord => {
-        bounds.push(coord);
-        fullPath.push(coord);
-      });
+      result.route.leg1.path.forEach(coord => bounds.push(coord));
     }
 
     // Draw Leg 2
@@ -124,19 +122,8 @@ function App() {
       }).addTo(mapInstanceRef.current);
 
       pathLayersRef.current.push(polyline);
-      result.route.leg2.path.forEach(coord => {
-        bounds.push(coord);
-        fullPath.push(coord);
-      });
+      result.route.leg2.path.forEach(coord => bounds.push(coord));
     }
-    
-    // Store full path for animation. The ref is updated synchronously so
-    // animateRoute() -- which may be called moments later from the same
-    // setTimeout chain, off a closure created before this state update
-    // lands -- always sees the freshly computed path instead of a stale
-    // (often empty) value from whenever its closure was created.
-    fullRoutePathRef.current = fullPath;
-    setFullRoutePath(fullPath);
 
     // Add Markers
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
@@ -148,6 +135,9 @@ function App() {
         .addTo(mapInstanceRef.current);
 
       markerLayersRef.current.push(startMarker);
+      
+      // Add Blinking Truck at Start Location
+      addBlinkingTruck(startCoord);
     }
 
     if (result.route.leg2.path && result.route.leg2.path.length > 0) {
@@ -176,130 +166,79 @@ function App() {
   };
 
   // ============================================
-  // ANIMATE ROUTE FUNCTION
+  // BLINKING TRUCK FUNCTION
   // ============================================
-  const animateRoute = () => {
+  const addBlinkingTruck = (position) => {
     const L = window.L;
-    const routePath = fullRoutePathRef.current;
-    if (!L || !mapInstanceRef.current || routePath.length < 2) {
-      return;
-    }
-    
-    // Clear any existing animation marker
-    if (animationMarkerRef.current) {
-      mapInstanceRef.current.removeLayer(animationMarkerRef.current);
-      animationMarkerRef.current = null;
-    }
-    
-    setIsAnimating(true);
-    setAnimationProgress(0);
-    
-    // Calculate total duration in seconds (with a minimum of 5 seconds for short trips)
-    const totalDuration = Math.max(result.route.total_driving_time_hours * 3600, 5);
-    const startTime = Date.now();
-    
-    // Create a truck icon
+    if (!L || !mapInstanceRef.current) return;
+
+    // Create truck icon with glow
     const truckIcon = L.divIcon({
       html: `<div style="
-        background-color: var(--color-primary);
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
         color: white; 
         border-radius: 50%; 
-        width: 36px; 
-        height: 36px; 
+        width: 40px; 
+        height: 40px; 
         display: flex; 
         align-items: center; 
         justify-content: center; 
-        font-size: 18px; 
+        font-size: 20px; 
         border: 3px solid white; 
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        box-shadow: 0 0 20px rgba(37, 99, 235, 0.5), 0 4px 16px rgba(0,0,0,0.3);
         transition: all 0.3s ease;
       ">🚛</div>`,
-      className: 'truck-animation',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
+      className: 'truck-marker',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
     });
-    
-    // Add the truck marker at the start
-    animationMarkerRef.current = L.marker(routePath[0], { icon: truckIcon })
+
+    // Add truck marker
+    truckMarkerRef.current = L.marker(position, { icon: truckIcon })
       .addTo(mapInstanceRef.current)
-      .bindPopup('🚛 Current Position');
-    
-    // Animate the truck along the route
-    const animate = () => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const progress = Math.min(elapsed / totalDuration, 1);
-      
-      // Get the position on the path
-      const totalPoints = routePath.length;
-      const index = Math.floor(progress * (totalPoints - 1));
-      const nextIndex = Math.min(index + 1, totalPoints - 1);
-      
-      if (index < totalPoints - 1 && animationMarkerRef.current) {
-        // Smooth interpolation between points
-        const fraction = (progress * (totalPoints - 1)) - index;
-        const lat = routePath[index][0] + (routePath[nextIndex][0] - routePath[index][0]) * fraction;
-        const lng = routePath[index][1] + (routePath[nextIndex][1] - routePath[index][1]) * fraction;
-        
-        animationMarkerRef.current.setLatLng([lat, lng]);
-        setAnimationProgress(progress * 100);
-        
-        // Update popup with progress info
-        const hoursDriven = (progress * result.route.total_driving_time_hours).toFixed(1);
-        animationMarkerRef.current.setPopupContent(
-          `🚛 Current Position<br/>Progress: ${Math.round(progress * 100)}%<br/>Hours Driven: ${hoursDriven} hrs`
-        );
+      .bindPopup('🚛 Trip Starts Here');
+
+    // Start blinking animation
+    let isVisible = true;
+    blinkIntervalRef.current = setInterval(() => {
+      isVisible = !isVisible;
+      if (truckMarkerRef.current) {
+        const icon = L.divIcon({
+          html: `<div style="
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: white; 
+            border-radius: 50%; 
+            width: ${isVisible ? '40' : '32'}px; 
+            height: ${isVisible ? '40' : '32'}px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: ${isVisible ? '20' : '16'}px; 
+            border: ${isVisible ? '3' : '2'}px solid white; 
+            box-shadow: 0 ${isVisible ? '0' : '0'} 20px rgba(37, 99, 235, ${isVisible ? '0.5' : '0.2'}), 0 4px 16px rgba(0,0,0,0.3);
+            opacity: ${isVisible ? '1' : '0.5'};
+            transition: all 0.3s ease;
+            transform: ${isVisible ? 'scale(1)' : 'scale(0.8)'};
+          ">🚛</div>`,
+          className: 'truck-marker',
+          iconSize: [isVisible ? 40 : 32, isVisible ? 40 : 32],
+          iconAnchor: [isVisible ? 20 : 16, isVisible ? 20 : 16]
+        });
+        truckMarkerRef.current.setIcon(icon);
       }
-      
-      if (progress < 1) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsAnimating(false);
-        // Update marker to final position
-        if (animationMarkerRef.current && routePath.length > 0) {
-          const finalPos = routePath[routePath.length - 1];
-          animationMarkerRef.current.setLatLng(finalPos);
-          animationMarkerRef.current.setPopupContent('✅ Trip Complete!');
-          
-          // Update marker style to show completion
-          const icon = L.divIcon({
-            html: `<div style="
-              background-color: #10b981;
-              color: white; 
-              border-radius: 50%; 
-              width: 36px; 
-              height: 36px; 
-              display: flex; 
-              align-items: center; 
-              justify-content: center; 
-              font-size: 18px; 
-              border: 3px solid white; 
-              box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-            ">✅</div>`,
-            className: 'truck-animation',
-            iconSize: [36, 36],
-            iconAnchor: [18, 18]
-          });
-          animationMarkerRef.current.setIcon(icon);
-        }
-        setAnimationProgress(100);
-      }
-    };
-    
-    animationRef.current = requestAnimationFrame(animate);
+    }, 600);
   };
 
-  // Cleanup animation
-  const cleanupAnimation = () => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
+  // Cleanup truck marker
+  const cleanupTruck = () => {
+    if (truckMarkerRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(truckMarkerRef.current);
+      truckMarkerRef.current = null;
     }
-    if (animationMarkerRef.current && mapInstanceRef.current) {
-      mapInstanceRef.current.removeLayer(animationMarkerRef.current);
-      animationMarkerRef.current = null;
+    if (blinkIntervalRef.current) {
+      clearInterval(blinkIntervalRef.current);
+      blinkIntervalRef.current = null;
     }
-    setIsAnimating(false);
-    setAnimationProgress(0);
   };
 
   // ============================================
@@ -372,7 +311,7 @@ function App() {
     return () => {
       clearTimeout(loadTimeout);
       clearTimeout(mapTimeoutRef.current);
-      cleanupAnimation();
+      cleanupTruck();
     };
   }, []);
 
@@ -382,16 +321,12 @@ function App() {
       setTimeout(() => {
         if (mapInstanceRef.current) {
           redrawRoute();
-          // Start animation after route is drawn
-          setTimeout(() => {
-            animateRoute();
-          }, 800);
         } else {
           initializeMap();
         }
       }, 300);
     }
-    return () => cleanupAnimation();
+    return () => cleanupTruck();
   }, [result]);
 
   // Handle window resize
@@ -414,8 +349,8 @@ function App() {
     setLoading(true);
     setError('');
     
-    // Cleanup previous animation
-    cleanupAnimation();
+    // Cleanup previous truck
+    cleanupTruck();
 
     if (!currentLocation.trim() || !pickupLocation.trim() || !dropoffLocation.trim()) {
       setError('Please provide current location, pickup, and dropoff locations.');
@@ -730,65 +665,6 @@ function App() {
 
           {result && !loading && (
             <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-              {/* ============================================
-                  ANIMATION PROGRESS BAR
-                  ============================================ */}
-              {isAnimating && (
-                <div className="glass-panel" style={{ 
-                  padding: '12px 20px', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '16px',
-                  animation: 'pulse 2s ease-in-out infinite'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '20px' }}>🚛</span>
-                    <span style={{ fontWeight: '600', fontSize: '14px' }}>Trip Progress</span>
-                  </div>
-                  <div style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
-                    <div style={{ 
-                      width: `${animationProgress}%`, 
-                      height: '100%', 
-                      background: 'linear-gradient(90deg, var(--color-primary), var(--color-cyan))',
-                      borderRadius: '10px',
-                      transition: 'width 0.5s ease',
-                      boxShadow: '0 0 20px rgba(37, 99, 235, 0.3)'
-                    }} />
-                  </div>
-                  <span style={{ fontSize: '14px', fontWeight: '600', minWidth: '60px', textAlign: 'right' }}>
-                    {Math.round(animationProgress)}%
-                  </span>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>⏳ In Progress...</span>
-                </div>
-              )}
-
-              {!isAnimating && result && animationProgress >= 100 && (
-                <div className="glass-panel" style={{ 
-                  padding: '12px 20px', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '16px',
-                  borderColor: 'var(--color-emerald)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '20px' }}>✅</span>
-                    <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--color-emerald)' }}>Trip Complete!</span>
-                  </div>
-                  <div style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
-                    <div style={{ 
-                      width: '100%', 
-                      height: '100%', 
-                      background: 'linear-gradient(90deg, var(--color-emerald), var(--color-cyan))',
-                      borderRadius: '10px'
-                    }} />
-                  </div>
-                  <span style={{ fontSize: '14px', fontWeight: '600', minWidth: '60px', textAlign: 'right', color: 'var(--color-emerald)' }}>
-                    100%
-                  </span>
-                  <span style={{ fontSize: '12px', color: 'var(--color-emerald)' }}>✅ Done!</span>
-                </div>
-              )}
 
               <div className="tab-group">
                 <button
