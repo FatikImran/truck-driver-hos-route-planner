@@ -185,20 +185,20 @@ function App() {
           background: linear-gradient(135deg, #2563eb, #3b82f6);
           color: white; 
           border-radius: 50%; 
-          width: 40px; 
-          height: 40px; 
+          width: 44px; 
+          height: 44px; 
           display: flex; 
           align-items: center; 
           justify-content: center; 
-          font-size: 20px; 
+          font-size: 22px; 
           border: 3px solid white; 
-          box-shadow: 0 0 20px rgba(37, 99, 235, 0.4), 0 4px 16px rgba(0,0,0,0.3);
+          box-shadow: 0 0 30px rgba(37, 99, 235, 0.5), 0 4px 16px rgba(0,0,0,0.3);
           transform: translateY(${offsetY}px);
           transition: transform 0.05s linear;
         ">🚛</div>`,
         className: 'truck-marker',
-        iconSize: [40, 40],
-        iconAnchor: [20, 20 + offsetY]
+        iconSize: [44, 44],
+        iconAnchor: [22, 22 + offsetY]
       });
     };
 
@@ -209,7 +209,7 @@ function App() {
 
     // Start bounce animation
     let lastTime = 0;
-    const bounceSpeed = 0.6;
+    const bounceSpeed = 0.35; // Slower for more visible bounce
 
     const animateBounce = (timestamp) => {
       if (!truckMarkerRef.current) return;
@@ -220,12 +220,11 @@ function App() {
       // Simple up/down motion
       bounceOffsetRef.current += bounceDirectionRef.current * delta * bounceSpeed;
       
-      // Reverse at bounds - 12px up, -4px down
-      if (bounceOffsetRef.current > 12) {
-        bounceOffsetRef.current = 12;
+      if (bounceOffsetRef.current > 20) {
+        bounceOffsetRef.current = 20;
         bounceDirectionRef.current = -1;
-      } else if (bounceOffsetRef.current < -4) {
-        bounceOffsetRef.current = -4;
+      } else if (bounceOffsetRef.current < -8) {
+        bounceOffsetRef.current = -8;
         bounceDirectionRef.current = 1;
       }
 
