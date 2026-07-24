@@ -72,6 +72,30 @@ def get_template_path():
     logger.warning("Template not found in any location")
     return None
 
+def get_font(size, bold=False):
+    """Get a font of the specified size. Returns a default font if truetype fails."""
+    try:
+        if bold:
+            return ImageFont.truetype("arialbd.ttf", size)
+        else:
+            return ImageFont.truetype("arial.ttf", size)
+    except:
+        try:
+            if bold:
+                return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+            else:
+                return ImageFont.truetype("DejaVuSans.ttf", size)
+        except:
+            try:
+                if bold:
+                    return ImageFont.truetype("FreeSansBold.ttf", size)
+                else:
+                    return ImageFont.truetype("FreeSans.ttf", size)
+            except:
+                # Fallback to default - but we'll use a different approach
+                # Create a custom sized default font
+                return ImageFont.load_default()
+
 def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, total_miles, day_index):
     """
     Draw HOS lines, text fields, remarks, and recap table on blank-paper-log.png.
@@ -101,84 +125,63 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
     draw = ImageDraw.Draw(img)
     
     # =========================================================================
-    # LOAD FONTS
+    # LOAD FONTS WITH EXPLICIT SIZES
     # =========================================================================
-    fonts = {
-        'small': None,
-        'normal': None,
-        'bold': None,
-        'xsmall': None,
-        'remark': None,  
-    }
+    # Note: PIL requires the font files to be available. On Railway,
+    # we need to use system fonts or fallback properly.
     
-    # Try different font files
-    font_files = [
-        ('arial.ttf', 'arialbd.ttf'),
-        ('DejaVuSans.ttf', 'DejaVuSans-Bold.ttf'),
-        ('FreeSans.ttf', 'FreeSansBold.ttf'),
-    ]
-    
-    for normal_font, bold_font in font_files:
-        try:
-            fonts['normal'] = ImageFont.truetype(normal_font, 9)
-            fonts['bold'] = ImageFont.truetype(bold_font, 10)
-            fonts['small'] = ImageFont.truetype(normal_font, 8)
-            fonts['xsmall'] = ImageFont.truetype(normal_font, 6)
-            fonts['remark'] = ImageFont.truetype(normal_font, 4)  
-            break
-        except:
-            continue
-    
-    # Fallback to default fonts
-    if fonts['normal'] is None:
-        try:
-            fonts['normal'] = ImageFont.load_default()
-            fonts['bold'] = ImageFont.load_default()
-            fonts['small'] = ImageFont.load_default()
-            fonts['xsmall'] = ImageFont.load_default()
-            fonts['remark'] = ImageFont.load_default()
-        except:
-            fonts['normal'] = ImageFont.load_default()
-            fonts['bold'] = ImageFont.load_default()
-            fonts['small'] = ImageFont.load_default()
-            fonts['xsmall'] = ImageFont.load_default()
-            fonts['remark'] = ImageFont.load_default()
-    
-    font_sm = fonts['small']
-    font_xs = fonts['xsmall']
-    font_remark = fonts['remark']  
-    font = fonts['normal']
-    bold_font = fonts['bold']
+    # Try to load fonts with explicit sizes
+    try:
+        # Larger fonts for headers
+        font_heading = get_font(10, bold=True)
+        font_normal = get_font(9)
+        font_small = get_font(7)
+        font_xsmall = get_font(6)
+        font_remark = get_font(5)  # Very small for remarks
+        
+        # Also get a bold version for the totals
+        font_bold = get_font(10, bold=True)
+    except:
+        # Ultimate fallback - use default but with a workaround
+        # The default font is fixed size, but we'll use it as is
+        font_heading = ImageFont.load_default()
+        font_normal = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+        font_xsmall = ImageFont.load_default()
+        font_remark = ImageFont.load_default()
+        font_bold = ImageFont.load_default()
+        
+        logger.warning("Using default fonts - sizes may not be accurate")
 
     # =========================================================================
     # HEADER TEXT FIELDS
     # =========================================================================
     try:
         # Date
-        draw.text((182, 6), date_obj.strftime("%m"), fill='black', font=bold_font)
-        draw.text((222, 6), date_obj.strftime("%d"), fill='black', font=bold_font)
-        draw.text((262, 6), date_obj.strftime("%Y"), fill='black', font=bold_font)
+        draw.text((182, 6), date_obj.strftime("%m"), fill='black', font=font_heading)
+        draw.text((222, 6), date_obj.strftime("%d"), fill='black', font=font_heading)
+        draw.text((262, 6), date_obj.strftime("%Y"), fill='black', font=font_heading)
         
         # From/To
-        draw.text((100, 34), from_loc[:30], fill='black', font=font)
-        draw.text((275, 34), to_loc[:30], fill='black', font=font)  
+        draw.text((100, 34), from_loc[:30], fill='black', font=font_normal)
+        draw.text((275, 34), to_loc[:30], fill='black', font=font_normal)  
         
         # Total Miles
-        draw.text((65, 75), f"{total_miles:.0f}", fill='black', font=font)
-        draw.text((165, 75), f"{total_miles:.0f}", fill='black', font=font)
+        draw.text((65, 75), f"{total_miles:.0f}", fill='black', font=font_normal)
+        draw.text((165, 75), f"{total_miles:.0f}", fill='black', font=font_normal)
         
         # Carrier Info
         carrier_name = carrier_info.get("carrier_name", "Spotter Logistics LLC")
-        draw.text((305, 65), carrier_name[:30], fill='black', font=font)
+        draw.text((305, 65), carrier_name[:30], fill='black', font=font_normal)
         
         main_office = carrier_info.get("main_office", "123 Main St, Dallas, TX")
-        draw.text((305, 89), main_office[:30], fill='black', font=font)   
+        draw.text((305, 89), main_office[:30], fill='black', font=font_normal)   
         
         truck_trailer = carrier_info.get("truck_trailer", "Truck #101 / Trailer #202")
-        draw.text((65, 105), truck_trailer[:30], fill='black', font=font) 
+        draw.text((65, 105), truck_trailer[:30], fill='black', font=font_normal) 
         
         home_terminal = carrier_info.get("home_terminal", "456 Safety Rd, Dallas, TX")
-        draw.text((305, 110), home_terminal[:30], fill='black', font=font)
+        draw.text((305, 110), home_terminal[:30], fill='black', font=font_normal)
         
     except Exception as e:
         logger.error(f"Error drawing header: {e}")
@@ -290,13 +293,13 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         y_driving = 230
         y_on_duty = 246
         
-        draw.text((x_totals, y_off_duty - 6), f"{totals['OFF']:.1f}", fill='black', font=bold_font)
-        draw.text((x_totals, y_sleeper - 6), f"{totals['SB']:.1f}", fill='black', font=bold_font)
-        draw.text((x_totals, y_driving - 6), f"{totals['D']:.1f}", fill='black', font=bold_font)
-        draw.text((x_totals, y_on_duty - 6), f"{totals['ON']:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, y_off_duty - 6), f"{totals['OFF']:.1f}", fill='black', font=font_bold)
+        draw.text((x_totals, y_sleeper - 6), f"{totals['SB']:.1f}", fill='black', font=font_bold)
+        draw.text((x_totals, y_driving - 6), f"{totals['D']:.1f}", fill='black', font=font_bold)
+        draw.text((x_totals, y_on_duty - 6), f"{totals['ON']:.1f}", fill='black', font=font_bold)
         
         grand_total = sum(totals.values())
-        draw.text((x_totals, 270), f"{grand_total:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, 270), f"{grand_total:.1f}", fill='black', font=font_bold)
     except Exception as e:
         logger.error(f"Error drawing totals: {e}")
 
@@ -398,7 +401,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             # --- The remark itself: location above, activity below ---
             _draw_rotated_remark_text(
                 img, (target_x, target_y), [location_text, activity_text],
-                font_sm, 'black', text_slant_deg
+                font_remark, 'black', text_slant_deg
             )
 
         # --- Total hours driven today: the last remark, plain text only ---
@@ -410,8 +413,8 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         text_x = 440
         text_y = 275
         
-        # Draw the circle around the text
-        bbox = draw.textbbox((text_x, text_y), total_text, font=font)
+        # Get text bounding box for circle
+        bbox = draw.textbbox((text_x, text_y), total_text, font=font_normal)
         padding = 4
         circle_center_x = (bbox[0] + bbox[2]) // 2
         circle_center_y = (bbox[1] + bbox[3]) // 2
@@ -425,7 +428,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         )
         
         # Draw the text inside the circle
-        draw.text((text_x, text_y), total_text, fill='black', font=font)
+        draw.text((text_x, text_y), total_text, fill='black', font=font_normal)
 
     except Exception as e:
         logger.error(f"Error drawing remarks: {e}")
@@ -439,10 +442,9 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         recap_a = carrier_info.get("recap_a", on_duty_today)
         recap_b = carrier_info.get("recap_b", max(0.0, 70.0 - recap_a))
         
-        # Recap fields - adjusted based on template
-        draw.text((80, 440), f"{on_duty_today:.1f}", fill='black', font=font)
-        draw.text((159, 440), f"{recap_a:.1f}", fill='black', font=font)
-        draw.text((203, 440), f"{recap_b:.1f}", fill='black', font=font)
+        draw.text((80, 440), f"{on_duty_today:.1f}", fill='black', font=font_normal)
+        draw.text((159, 440), f"{recap_a:.1f}", fill='black', font=font_normal)
+        draw.text((203, 440), f"{recap_b:.1f}", fill='black', font=font_normal)
         
     except Exception as e:
         logger.error(f"Error drawing recap: {e}")
