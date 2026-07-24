@@ -224,6 +224,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('map');
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [loadingStep, setLoadingStep] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     if (!loading) {
