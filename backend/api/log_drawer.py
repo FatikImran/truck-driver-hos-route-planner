@@ -108,6 +108,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         'normal': None,
         'bold': None,
         'xsmall': None,
+        'remark': None,  
     }
     
     # Try different font files
@@ -123,6 +124,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             fonts['bold'] = ImageFont.truetype(bold_font, 10)
             fonts['small'] = ImageFont.truetype(normal_font, 8)
             fonts['xsmall'] = ImageFont.truetype(normal_font, 6)
+            fonts['remark'] = ImageFont.truetype(normal_font, 5)  
             break
         except:
             continue
@@ -134,14 +136,17 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             fonts['bold'] = ImageFont.load_default()
             fonts['small'] = ImageFont.load_default()
             fonts['xsmall'] = ImageFont.load_default()
+            fonts['remark'] = ImageFont.load_default()
         except:
             fonts['normal'] = ImageFont.load_default()
             fonts['bold'] = ImageFont.load_default()
             fonts['small'] = ImageFont.load_default()
             fonts['xsmall'] = ImageFont.load_default()
+            fonts['remark'] = ImageFont.load_default()
     
     font_sm = fonts['small']
     font_xs = fonts['xsmall']
+    font_remark = fonts['remark']  
     font = fonts['normal']
     bold_font = fonts['bold']
 
@@ -154,11 +159,11 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         draw.text((222, 6), date_obj.strftime("%d"), fill='black', font=bold_font)
         draw.text((262, 6), date_obj.strftime("%Y"), fill='black', font=bold_font)
         
-        # From/To - adjusted to fit "Dallas" properly
+        # From/To
         draw.text((100, 34), from_loc[:30], fill='black', font=font)
         draw.text((275, 34), to_loc[:30], fill='black', font=font)  
         
-        # Total Miles - adjusted for better alignment
+        # Total Miles
         draw.text((65, 75), f"{total_miles:.0f}", fill='black', font=font)
         draw.text((165, 75), f"{total_miles:.0f}", fill='black', font=font)
         
@@ -344,7 +349,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         last_dense_x = -1e9
 
         def estimate_text_width(s):
-            return int(len(s) * 5.2) + 6  # rough px width for font_sm-sized text
+            return int(len(s) * 3.8) + 4  # rough px width for font_sm-sized text
 
         for idx, target in enumerate(remark_targets):
             x1, y_val, act = target["x1"], target["y_val"], target["act"]
@@ -364,7 +369,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
 
                 combined = f"{act['location'][:14]} - {act['description'][:14]}"
                 _draw_rotated_remark_text(
-                    img, (x1, row_y), [combined], font_xs, 'black', -90
+                    img, (x1, row_y), [combined], font_remark, 'black', -90  # Using font_remark
                 )
                 continue
 
@@ -399,7 +404,29 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         # --- Total hours driven today: the last remark, plain text only ---
         # No bucket and no leader line for this one, per spec.
         total_driven_hours = totals.get("D", 0.0)
-        draw.text((440, 275), f"{total_driven_hours:.1f}", fill='black', font=font)
+        total_text = f"{total_driven_hours:.1f}"
+        
+        # Position for the total hours (bottom right of the grid)
+        text_x = 440
+        text_y = 275
+        
+        # Draw the circle around the text
+        bbox = draw.textbbox((text_x, text_y), total_text, font=font)
+        padding = 4
+        circle_center_x = (bbox[0] + bbox[2]) // 2
+        circle_center_y = (bbox[1] + bbox[3]) // 2
+        circle_radius = max((bbox[2] - bbox[0]) // 2, (bbox[3] - bbox[1]) // 2) + padding
+        
+        # Draw circle outline
+        draw.ellipse(
+            [(circle_center_x - circle_radius, circle_center_y - circle_radius),
+             (circle_center_x + circle_radius, circle_center_y + circle_radius)],
+            outline='black', width=1
+        )
+        
+        # Draw the text inside the circle
+        draw.text((text_x, text_y), total_text, fill='black', font=font)
+
     except Exception as e:
         logger.error(f"Error drawing remarks: {e}")
 
