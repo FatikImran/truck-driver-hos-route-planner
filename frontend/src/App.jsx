@@ -62,7 +62,9 @@ function App() {
   const mapInitializedRef = useRef(false);
   const mapTimeoutRef = useRef(null);
   const truckMarkerRef = useRef(null);
-  const blinkIntervalRef = useRef(null);
+  const bounceAnimationRef = useRef(null);
+  const bounceOffsetRef = useRef(0);
+  const bounceDirectionRef = useRef(1);
 
   // ============================================
   // REDRAW ROUTE FUNCTION
@@ -84,9 +86,9 @@ function App() {
       mapInstanceRef.current.removeLayer(truckMarkerRef.current);
       truckMarkerRef.current = null;
     }
-    if (blinkIntervalRef.current) {
-      clearInterval(blinkIntervalRef.current);
-      blinkIntervalRef.current = null;
+    if (bounceAnimationRef.current) {
+      cancelAnimationFrame(bounceAnimationRef.current);
+      bounceAnimationRef.current = null;
     }
 
     const bounds = [];
@@ -136,8 +138,8 @@ function App() {
 
       markerLayersRef.current.push(startMarker);
       
-      // Add Blinking Truck at Start Location
-      addBlinkingTruck(startCoord);
+      // Add Bouncing Truck at Start Location
+      addBouncingTruck(startCoord);
     }
 
     if (result.route.leg2.path && result.route.leg2.path.length > 0) {
@@ -166,79 +168,89 @@ function App() {
   };
 
   // ============================================
-  // BLINKING TRUCK FUNCTION
+  // BOUNCING TRUCK FUNCTION
   // ============================================
-  const addBlinkingTruck = (position) => {
+  const addBouncingTruck = (position) => {
     const L = window.L;
     if (!L || !mapInstanceRef.current) return;
 
+    // Initial bounce offset
+    bounceOffsetRef.current = 0;
+    bounceDirectionRef.current = 1;
+
     // Create truck icon with glow
-    const truckIcon = L.divIcon({
-      html: `<div style="
-        background: linear-gradient(135deg, #2563eb, #3b82f6);
-        color: white; 
-        border-radius: 50%; 
-        width: 40px; 
-        height: 40px; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        font-size: 20px; 
-        border: 3px solid white; 
-        box-shadow: 0 0 20px rgba(37, 99, 235, 0.5), 0 4px 16px rgba(0,0,0,0.3);
-        transition: all 0.3s ease;
-      ">🚛</div>`,
-      className: 'truck-marker',
-      iconSize: [40, 40],
-      iconAnchor: [20, 20]
-    });
+    const createTruckIcon = (offsetY) => {
+      return L.divIcon({
+        html: `<div style="
+          background: linear-gradient(135deg, #2563eb, #3b82f6);
+          color: white; 
+          border-radius: 50%; 
+          width: 40px; 
+          height: 40px; 
+          display: flex; 
+          align-items: center; 
+          justify-content: center; 
+          font-size: 20px; 
+          border: 3px solid white; 
+          box-shadow: 0 0 20px rgba(37, 99, 235, 0.4), 0 4px 16px rgba(0,0,0,0.3);
+          transform: translateY(${offsetY}px);
+          transition: transform 0.05s linear;
+        ">🚛</div>`,
+        className: 'truck-marker',
+        iconSize: [40, 40],
+        iconAnchor: [20, 20 + offsetY]
+      });
+    };
 
     // Add truck marker
-    truckMarkerRef.current = L.marker(position, { icon: truckIcon })
+    truckMarkerRef.current = L.marker(position, { icon: createTruckIcon(0) })
       .addTo(mapInstanceRef.current)
       .bindPopup('🚛 Trip Starts Here');
 
-    // Start blinking animation
-    let isVisible = true;
-    blinkIntervalRef.current = setInterval(() => {
-      isVisible = !isVisible;
-      if (truckMarkerRef.current) {
-        const icon = L.divIcon({
-          html: `<div style="
-            background: linear-gradient(135deg, #2563eb, #3b82f6);
-            color: white; 
-            border-radius: 50%; 
-            width: ${isVisible ? '40' : '32'}px; 
-            height: ${isVisible ? '40' : '32'}px; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            font-size: ${isVisible ? '20' : '16'}px; 
-            border: ${isVisible ? '3' : '2'}px solid white; 
-            box-shadow: 0 ${isVisible ? '0' : '0'} 20px rgba(37, 99, 235, ${isVisible ? '0.5' : '0.2'}), 0 4px 16px rgba(0,0,0,0.3);
-            opacity: ${isVisible ? '1' : '0.5'};
-            transition: all 0.3s ease;
-            transform: ${isVisible ? 'scale(1)' : 'scale(0.8)'};
-          ">🚛</div>`,
-          className: 'truck-marker',
-          iconSize: [isVisible ? 40 : 32, isVisible ? 40 : 32],
-          iconAnchor: [isVisible ? 20 : 16, isVisible ? 20 : 16]
-        });
-        truckMarkerRef.current.setIcon(icon);
+    // Start bounce animation
+    let lastTime = 0;
+    const bounceSpeed = 0.08; // Speed of bounce
+
+    const animateBounce = (timestamp) => {
+      if (!truckMarkerRef.current) return;
+
+      const delta = lastTime ? (timestamp - lastTime) / 16 : 1;
+      lastTime = timestamp;
+
+      // Update bounce offset (sine wave-like motion)
+      bounceOffsetRef.current += bounceDirectionRef.current * delta * 0.5;
+      
+      // Reverse direction at bounds
+      if (bounceOffsetRef.current > 6) {
+        bounceOffsetRef.current = 6;
+        bounceDirectionRef.current = -1;
+      } else if (bounceOffsetRef.current < -2) {
+        bounceOffsetRef.current = -2;
+        bounceDirectionRef.current = 1;
       }
-    }, 600);
+
+      // Update marker position
+      const newIcon = createTruckIcon(bounceOffsetRef.current);
+      truckMarkerRef.current.setIcon(newIcon);
+
+      bounceAnimationRef.current = requestAnimationFrame(animateBounce);
+    };
+
+    bounceAnimationRef.current = requestAnimationFrame(animateBounce);
   };
 
-  // Cleanup truck marker
+  // Cleanup truck
   const cleanupTruck = () => {
     if (truckMarkerRef.current && mapInstanceRef.current) {
       mapInstanceRef.current.removeLayer(truckMarkerRef.current);
       truckMarkerRef.current = null;
     }
-    if (blinkIntervalRef.current) {
-      clearInterval(blinkIntervalRef.current);
-      blinkIntervalRef.current = null;
+    if (bounceAnimationRef.current) {
+      cancelAnimationFrame(bounceAnimationRef.current);
+      bounceAnimationRef.current = null;
     }
+    bounceOffsetRef.current = 0;
+    bounceDirectionRef.current = 1;
   };
 
   // ============================================
