@@ -65,6 +65,7 @@ function App() {
   const bounceAnimationRef = useRef(null);
   const bounceOffsetRef = useRef(0);
   const bounceDirectionRef = useRef(1);
+  const bounceSpeedRef = useRef(0.8);
 
   // ============================================
   // REDRAW ROUTE FUNCTION
@@ -102,6 +103,9 @@ function App() {
       });
     };
 
+    // Build full route path for animation
+    const fullPath = [];
+    
     // Draw Leg 1
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
       const polyline = L.polyline(result.route.leg1.path, {
@@ -111,7 +115,10 @@ function App() {
       }).addTo(mapInstanceRef.current);
 
       pathLayersRef.current.push(polyline);
-      result.route.leg1.path.forEach(coord => bounds.push(coord));
+      result.route.leg1.path.forEach(coord => {
+        bounds.push(coord);
+        fullPath.push(coord);
+      });
     }
 
     // Draw Leg 2
@@ -124,7 +131,10 @@ function App() {
       }).addTo(mapInstanceRef.current);
 
       pathLayersRef.current.push(polyline);
-      result.route.leg2.path.forEach(coord => bounds.push(coord));
+      result.route.leg2.path.forEach(coord => {
+        bounds.push(coord);
+        fullPath.push(coord);
+      });
     }
 
     // Add Markers
@@ -177,28 +187,33 @@ function App() {
     // Initial bounce offset
     bounceOffsetRef.current = 0;
     bounceDirectionRef.current = 1;
+    bounceSpeedRef.current = 0.8;
 
     // Create truck icon with glow
     const createTruckIcon = (offsetY) => {
+      // Calculate scale based on offset (squish effect)
+      const scale = 1 - Math.abs(offsetY) * 0.008;
+      const squish = 1 + Math.abs(offsetY) * 0.015;
+      
       return L.divIcon({
         html: `<div style="
           background: linear-gradient(135deg, #2563eb, #3b82f6);
           color: white; 
           border-radius: 50%; 
-          width: 40px; 
-          height: 40px; 
+          width: 44px; 
+          height: 44px; 
           display: flex; 
           align-items: center; 
           justify-content: center; 
-          font-size: 20px; 
+          font-size: 22px; 
           border: 3px solid white; 
-          box-shadow: 0 0 20px rgba(37, 99, 235, 0.4), 0 4px 16px rgba(0,0,0,0.3);
-          transform: translateY(${offsetY}px);
+          box-shadow: 0 0 30px rgba(37, 99, 235, 0.5), 0 4px 16px rgba(0,0,0,0.3);
+          transform: translateY(${offsetY}px) scale(${scale});
           transition: transform 0.05s linear;
         ">🚛</div>`,
         className: 'truck-marker',
-        iconSize: [40, 40],
-        iconAnchor: [20, 20 + offsetY]
+        iconSize: [44, 44],
+        iconAnchor: [22, 22 + offsetY]
       });
     };
 
@@ -209,23 +224,24 @@ function App() {
 
     // Start bounce animation
     let lastTime = 0;
-    const bounceSpeed = 0.08; // Speed of bounce
 
     const animateBounce = (timestamp) => {
-      if (!truckMarkerRef.current) return;
+      if (!truckMarkerRef.current || !mapInstanceRef.current) {
+        return;
+      }
 
-      const delta = lastTime ? (timestamp - lastTime) / 16 : 1;
+      const delta = lastTime ? Math.min((timestamp - lastTime) / 16, 2) : 1;
       lastTime = timestamp;
 
-      // Update bounce offset (sine wave-like motion)
-      bounceOffsetRef.current += bounceDirectionRef.current * delta * 0.5;
+      // Update bounce offset - larger range for more visible bounce
+      bounceOffsetRef.current += bounceDirectionRef.current * delta * bounceSpeedRef.current;
       
-      // Reverse direction at bounds
-      if (bounceOffsetRef.current > 6) {
-        bounceOffsetRef.current = 6;
+      // Reverse direction at bounds - larger range (12px up, -6px down)
+      if (bounceOffsetRef.current > 14) {
+        bounceOffsetRef.current = 14;
         bounceDirectionRef.current = -1;
-      } else if (bounceOffsetRef.current < -2) {
-        bounceOffsetRef.current = -2;
+      } else if (bounceOffsetRef.current < -6) {
+        bounceOffsetRef.current = -6;
         bounceDirectionRef.current = 1;
       }
 
