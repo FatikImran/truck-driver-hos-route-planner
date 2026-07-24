@@ -124,7 +124,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
             fonts['bold'] = ImageFont.truetype(bold_font, 10)
             fonts['small'] = ImageFont.truetype(normal_font, 8)
             fonts['xsmall'] = ImageFont.truetype(normal_font, 6)
-            fonts['remark'] = ImageFont.truetype(normal_font, 5)  
+            fonts['remark'] = ImageFont.truetype(normal_font, 4)  
             break
         except:
             continue
@@ -296,7 +296,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         draw.text((x_totals, y_on_duty - 6), f"{totals['ON']:.1f}", fill='black', font=bold_font)
         
         grand_total = sum(totals.values())
-        draw.text((x_totals, 274), f"{grand_total:.1f}", fill='black', font=bold_font)
+        draw.text((x_totals, 270), f"{grand_total:.1f}", fill='black', font=bold_font)
     except Exception as e:
         logger.error(f"Error drawing totals: {e}")
 
