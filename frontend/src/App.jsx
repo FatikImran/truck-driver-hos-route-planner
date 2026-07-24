@@ -5,6 +5,14 @@ import {
   Sun, Moon, Sparkles
 } from 'lucide-react';
 
+const ROUTE_LOADING_MESSAGES = [
+  'Geocoding your locations...',
+  'Charting the optimal route...',
+  'Simulating FMCSA HOS duty cycles...',
+  'Building your daily log sheets...',
+  'Finalizing the trip plan...'
+];
+
 function App() {
   // ============================================
   // THEME STATE
@@ -53,6 +61,18 @@ function App() {
   const [result, setResult] = useState(null);
   const [activeTab, setActiveTab] = useState('map');
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [loadingStep, setLoadingStep] = useState(0);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingStep((prev) => (prev + 1) % ROUTE_LOADING_MESSAGES.length);
+    }, 1400);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Map Refs
   const mapContainerRef = useRef(null);
@@ -663,13 +683,32 @@ function App() {
           )}
 
           {loading && (
-            <div className="glass-panel animate-fade-in" style={{ padding: '80px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
-              <div className="animate-spin" style={{ color: 'var(--color-primary)', fontSize: '40px' }}>
-                <RefreshCw size={48} />
+            <div className="glass-panel animate-fade-in route-loading">
+              <div className="road-scene">
+                <span className="road-edge road-edge-top" />
+                <span className="road-lane" />
+                <span className="road-edge road-edge-bottom" />
+
+                <div className="loading-truck-wrap">
+                  <span className="speed-line speed-line-1" />
+                  <span className="speed-line speed-line-2" />
+                  <span className="speed-line speed-line-3" />
+                  <div className="loading-truck-icon">
+                    <Truck size={38} strokeWidth={2} />
+                  </div>
+                  <span className="exhaust-puff exhaust-puff-1" />
+                  <span className="exhaust-puff exhaust-puff-2" />
+                  <span className="exhaust-puff exhaust-puff-3" />
+                </div>
               </div>
-              <h2 style={{ fontSize: '20px', fontWeight: '700' }}>Crunching HOS Compliance & Routes</h2>
-              <p style={{ color: 'var(--text-secondary)', maxWidth: '400px', fontSize: '14px' }}>
-                Querying OSM geocoders, building route nodes, and simulating driver duty status timeline rules under FMCSA HOS regulations...
+
+              <div className="loading-progress-track">
+                <div className="loading-progress-fill" />
+              </div>
+
+              <h2 style={{ fontSize: '20px', fontWeight: '700', marginTop: '4px' }}>Crunching HOS Compliance & Routes</h2>
+              <p key={loadingStep} className="loading-step-text animate-fade-in">
+                {ROUTE_LOADING_MESSAGES[loadingStep]}
               </p>
             </div>
           )}
