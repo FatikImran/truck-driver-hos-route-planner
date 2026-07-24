@@ -72,29 +72,56 @@ def get_template_path():
     logger.warning("Template not found in any location")
     return None
 
+def get_font_path(bold=False):
+    """
+    Resolve a bundled TTF font file on disk, checked into the repo, so
+    sizing works identically in local dev and on Railway. Bare font names
+    like "arial.ttf" only resolve via ImageFont.truetype() if PIL's font
+    search path happens to contain a matching file -- true on most desktop
+    OSes, essentially never true in a minimal Linux container. When every
+    lookup fails silently, get_font() used to fall back to
+    ImageFont.load_default(), which ignores the requested size entirely
+    and returns a single fixed-size bitmap font -- which is exactly why
+    every size looked identical once deployed.
+    """
+    current_dir = Path(__file__).resolve().parent
+    filename = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+
+    possible_paths = [
+        current_dir / 'fonts' / filename,
+        current_dir.parent / 'fonts' / filename,
+        current_dir.parent / 'templates' / filename,  # alongside the png, if that's easier
+        Path('/app/backend/api/fonts') / filename,     # Railway absolute path, mirror get_template_path()
+        Path('/app/fonts') / filename,
+    ]
+
+    for path in possible_paths:
+        if path.exists():
+            return path
+
+    logger.warning(f"Bundled font {filename} not found in any expected location")
+    return None
+
 def get_font(size, bold=False):
     """Get a font of the specified size. Returns a default font if truetype fails."""
-    try:
-        if bold:
-            return ImageFont.truetype("arialbd.ttf", size)
-        else:
-            return ImageFont.truetype("arial.ttf", size)
-    except:
+    font_path = get_font_path(bold=bold)
+    if font_path is not None:
         try:
-            if bold:
-                return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-            else:
-                return ImageFont.truetype("DejaVuSans.ttf", size)
-        except:
-            try:
-                if bold:
-                    return ImageFont.truetype("FreeSansBold.ttf", size)
-                else:
-                    return ImageFont.truetype("FreeSans.ttf", size)
-            except:
-                # Fallback to default - but we'll use a different approach
-                # Create a custom sized default font
-                return ImageFont.load_default()
+            return ImageFont.truetype(str(font_path), size)
+        except Exception as e:
+            logger.error(f"Failed to load bundled font {font_path} at size {size}: {e}")
+
+    # Last-resort fallback. NOTE: on Pillow 10.1+, load_default(size=...)
+    # actually respects the size argument (it swaps in a scalable font);
+    # on older Pillow it still ignores size and returns one fixed bitmap
+    # size regardless of what's asked for. Pass size explicitly so it at
+    # least varies where Pillow supports it -- but don't rely on this
+    # path in production; get a real .ttf bundled instead.
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        logger.warning(f"Pillow version has no scalable load_default(); size {size} will be ignored")
+        return ImageFont.load_default()
 
 def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, total_miles, day_index):
     """
