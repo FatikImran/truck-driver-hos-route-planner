@@ -925,8 +925,11 @@ function App() {
             </div>
           )}
 
-          {result && !loading && (
-            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {result && (
+            <div
+              className={!loading ? 'animate-fade-in' : ''}
+              style={{ display: loading ? 'none' : 'flex', flexDirection: 'column', gap: '20px' }}
+            >
 
               <div className="tab-group">
                 <button
