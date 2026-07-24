@@ -54,6 +54,12 @@ function App() {
   const [activeTab, setActiveTab] = useState('map');
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
 
+  // Animation States
+  const [animationProgress, setAnimationProgress] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [fullRoutePath, setFullRoutePath] = useState([]);
+  const animationRef = useRef(null);
+
   // Map Refs
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
@@ -61,6 +67,7 @@ function App() {
   const markerLayersRef = useRef([]);
   const mapInitializedRef = useRef(false);
   const mapTimeoutRef = useRef(null);
+  const animationMarkerRef = useRef(null);
 
   // ============================================
   // REDRAW ROUTE FUNCTION
@@ -88,6 +95,9 @@ function App() {
       });
     };
 
+    // Build full route path for animation
+    const fullPath = [];
+    
     // Draw Leg 1
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
       const polyline = L.polyline(result.route.leg1.path, {
@@ -97,7 +107,10 @@ function App() {
       }).addTo(mapInstanceRef.current);
 
       pathLayersRef.current.push(polyline);
-      result.route.leg1.path.forEach(coord => bounds.push(coord));
+      result.route.leg1.path.forEach(coord => {
+        bounds.push(coord);
+        fullPath.push(coord);
+      });
     }
 
     // Draw Leg 2
@@ -110,8 +123,14 @@ function App() {
       }).addTo(mapInstanceRef.current);
 
       pathLayersRef.current.push(polyline);
-      result.route.leg2.path.forEach(coord => bounds.push(coord));
+      result.route.leg2.path.forEach(coord => {
+        bounds.push(coord);
+        fullPath.push(coord);
+      });
     }
+    
+    // Store full path for animation
+    setFullRoutePath(fullPath);
 
     // Add Markers
     if (result.route.leg1.path && result.route.leg1.path.length > 0) {
@@ -148,6 +167,132 @@ function App() {
     if (bounds.length > 0) {
       mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
     }
+  };
+
+  // ============================================
+  // ANIMATE ROUTE FUNCTION
+  // ============================================
+  const animateRoute = () => {
+    const L = window.L;
+    if (!L || !mapInstanceRef.current || fullRoutePath.length < 2) {
+      return;
+    }
+    
+    // Clear any existing animation marker
+    if (animationMarkerRef.current) {
+      mapInstanceRef.current.removeLayer(animationMarkerRef.current);
+      animationMarkerRef.current = null;
+    }
+    
+    setIsAnimating(true);
+    setAnimationProgress(0);
+    
+    // Calculate total duration in seconds (with a minimum of 5 seconds for short trips)
+    const totalDuration = Math.max(result.route.total_driving_time_hours * 3600, 5);
+    const startTime = Date.now();
+    
+    // Create a truck icon
+    const truckIcon = L.divIcon({
+      html: `<div style="
+        background-color: var(--color-primary);
+        color: white; 
+        border-radius: 50%; 
+        width: 36px; 
+        height: 36px; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        font-size: 18px; 
+        border: 3px solid white; 
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        transition: all 0.3s ease;
+      ">🚛</div>`,
+      className: 'truck-animation',
+      iconSize: [36, 36],
+      iconAnchor: [18, 18]
+    });
+    
+    // Add the truck marker at the start
+    animationMarkerRef.current = L.marker(fullRoutePath[0], { icon: truckIcon })
+      .addTo(mapInstanceRef.current)
+      .bindPopup('🚛 Current Position');
+    
+    // Animate the truck along the route
+    const animate = () => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const progress = Math.min(elapsed / totalDuration, 1);
+      
+      // Get the position on the path
+      const totalPoints = fullRoutePath.length;
+      const index = Math.floor(progress * (totalPoints - 1));
+      const nextIndex = Math.min(index + 1, totalPoints - 1);
+      
+      if (index < totalPoints - 1 && animationMarkerRef.current) {
+        // Smooth interpolation between points
+        const fraction = (progress * (totalPoints - 1)) - index;
+        const lat = fullRoutePath[index][0] + (fullRoutePath[nextIndex][0] - fullRoutePath[index][0]) * fraction;
+        const lng = fullRoutePath[index][1] + (fullRoutePath[nextIndex][1] - fullRoutePath[index][1]) * fraction;
+        
+        animationMarkerRef.current.setLatLng([lat, lng]);
+        setAnimationProgress(progress * 100);
+        
+        // Update popup with progress info
+        const hoursDriven = (progress * result.route.total_driving_time_hours).toFixed(1);
+        animationMarkerRef.current.setPopupContent(
+          `🚛 Current Position<br/>Progress: ${Math.round(progress * 100)}%<br/>Hours Driven: ${hoursDriven} hrs`
+        );
+      }
+      
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      } else {
+        setIsAnimating(false);
+        // Update marker to final position
+        if (animationMarkerRef.current && fullRoutePath.length > 0) {
+          const finalPos = fullRoutePath[fullRoutePath.length - 1];
+          animationMarkerRef.current.setLatLng(finalPos);
+          animationMarkerRef.current.setPopupContent('✅ Trip Complete!');
+          
+          // Update marker style to show completion
+          const icon = L.divIcon({
+            html: `<div style="
+              background-color: #10b981;
+              color: white; 
+              border-radius: 50%; 
+              width: 36px; 
+              height: 36px; 
+              display: flex; 
+              align-items: center; 
+              justify-content: center; 
+              font-size: 18px; 
+              border: 3px solid white; 
+              box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            ">✅</div>`,
+            className: 'truck-animation',
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+          });
+          animationMarkerRef.current.setIcon(icon);
+        }
+        setAnimationProgress(100);
+      }
+    };
+    
+    animationRef.current = requestAnimationFrame(animate);
+  };
+
+  // Cleanup animation
+  const cleanupAnimation = () => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    if (animationMarkerRef.current && mapInstanceRef.current) {
+      mapInstanceRef.current.removeLayer(animationMarkerRef.current);
+      animationMarkerRef.current = null;
+    }
+    setIsAnimating(false);
+    setAnimationProgress(0);
   };
 
   // ============================================
@@ -220,6 +365,7 @@ function App() {
     return () => {
       clearTimeout(loadTimeout);
       clearTimeout(mapTimeoutRef.current);
+      cleanupAnimation();
     };
   }, []);
 
@@ -229,11 +375,16 @@ function App() {
       setTimeout(() => {
         if (mapInstanceRef.current) {
           redrawRoute();
+          // Start animation after route is drawn
+          setTimeout(() => {
+            animateRoute();
+          }, 800);
         } else {
           initializeMap();
         }
       }, 300);
     }
+    return () => cleanupAnimation();
   }, [result]);
 
   // Handle window resize
@@ -255,6 +406,9 @@ function App() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    
+    // Cleanup previous animation
+    cleanupAnimation();
 
     if (!currentLocation.trim() || !pickupLocation.trim() || !dropoffLocation.trim()) {
       setError('Please provide current location, pickup, and dropoff locations.');
@@ -569,6 +723,65 @@ function App() {
 
           {result && !loading && (
             <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+              {/* ============================================
+                  ANIMATION PROGRESS BAR
+                  ============================================ */}
+              {isAnimating && (
+                <div className="glass-panel" style={{ 
+                  padding: '12px 20px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '16px',
+                  animation: 'pulse 2s ease-in-out infinite'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '20px' }}>🚛</span>
+                    <span style={{ fontWeight: '600', fontSize: '14px' }}>Trip Progress</span>
+                  </div>
+                  <div style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+                    <div style={{ 
+                      width: `${animationProgress}%`, 
+                      height: '100%', 
+                      background: 'linear-gradient(90deg, var(--color-primary), var(--color-cyan))',
+                      borderRadius: '10px',
+                      transition: 'width 0.5s ease',
+                      boxShadow: '0 0 20px rgba(37, 99, 235, 0.3)'
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '14px', fontWeight: '600', minWidth: '60px', textAlign: 'right' }}>
+                    {Math.round(animationProgress)}%
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>⏳ In Progress...</span>
+                </div>
+              )}
+
+              {!isAnimating && result && animationProgress >= 100 && (
+                <div className="glass-panel" style={{ 
+                  padding: '12px 20px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '16px',
+                  borderColor: 'var(--color-emerald)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '20px' }}>✅</span>
+                    <span style={{ fontWeight: '600', fontSize: '14px', color: 'var(--color-emerald)' }}>Trip Complete!</span>
+                  </div>
+                  <div style={{ flex: 1, background: 'var(--bg-secondary)', borderRadius: '10px', height: '8px', overflow: 'hidden' }}>
+                    <div style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      background: 'linear-gradient(90deg, var(--color-emerald), var(--color-cyan))',
+                      borderRadius: '10px'
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '14px', fontWeight: '600', minWidth: '60px', textAlign: 'right', color: 'var(--color-emerald)' }}>
+                    100%
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--color-emerald)' }}>✅ Done!</span>
+                </div>
+              )}
 
               <div className="tab-group">
                 <button
