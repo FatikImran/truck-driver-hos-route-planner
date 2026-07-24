@@ -69,10 +69,14 @@ def geocode_location(location_name):
     Resolve a location name to (latitude, longitude) using Nominatim,
     with a fallback to local coordinates for major US cities.
     """
-    if not location_name:
+    if not location_name or not isinstance(location_name, str):
         raise ValueError("Location name cannot be empty.")
-    
+
     clean_name = location_name.strip().lower()
+    if not clean_name:
+        raise ValueError("Location name cannot be empty.")
+    if len(clean_name) > 200:
+        raise ValueError("Location name is too long.")
     
     # 1. Try local exact match or substring match
     for city, coords in US_CITIES_COORDS.items():
@@ -246,6 +250,104 @@ def reverse_geocode(lat, lon):
         return f"Near {nearest_city.title()}"
 
     return "En Route"
+
+
+def search_location_suggestions(query, limit=5):
+    """
+    Return up to `limit` autocomplete suggestions for a partial location
+    string, for use in a search-as-you-type UI.
+
+    Suggestions are assembled from two sources:
+      1. The local US_CITIES_COORDS database (instant, no network call) —
+         any city whose name starts with or contains the query.
+      2. Nominatim's search endpoint, to fill in remaining slots with
+         addresses/cities beyond the local list (respecting Nominatim's
+         ~1 req/sec usage policy via `_nominatim_rate_limit`).
+
+    Returns a list of dicts: {"display_name": str, "lat": float, "lon": float}.
+    Returns an empty list (never raises) if the query is too short or if
+    both lookups fail — callers should treat "no suggestions" as normal,
+    not an error condition.
+    """
+    if not query or not isinstance(query, str):
+        return []
+
+    clean_query = query.strip()
+    if len(clean_query) < 2:
+        return []
+    if len(clean_query) > 200:
+        clean_query = clean_query[:200]
+
+    limit = max(1, min(int(limit), 10)) if isinstance(limit, (int, float)) else 5
+
+    suggestions = []
+    seen_names = set()
+
+    # 1. Local database — instant results, prioritize names that start with
+    #    the query over ones that merely contain it.
+    lower_query = clean_query.lower()
+    starts_with = []
+    contains = []
+    for city, coords in US_CITIES_COORDS.items():
+        if city.startswith(lower_query):
+            starts_with.append((city, coords))
+        elif lower_query in city:
+            contains.append((city, coords))
+
+    for city, (lat, lon) in starts_with + contains:
+        if len(suggestions) >= limit:
+            break
+        display_name = city.title()
+        if display_name.lower() not in seen_names:
+            suggestions.append({"display_name": display_name, "lat": lat, "lon": lon})
+            seen_names.add(display_name.lower())
+
+    # 2. Nominatim — fill any remaining slots.
+    if len(suggestions) < limit:
+        try:
+            _nominatim_rate_limit()
+            url = "https://nominatim.openstreetmap.org/search"
+            headers = {
+                "User-Agent": "SpotterHOSPlanner/1.0 (fatik@example.com)"
+            }
+            params = {
+                "q": clean_query,
+                "format": "json",
+                "limit": limit,
+                "countrycodes": "us",
+                "addressdetails": 1,
+            }
+            response = requests.get(url, params=params, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                for item in data:
+                    if len(suggestions) >= limit:
+                        break
+                    try:
+                        lat = float(item["lat"])
+                        lon = float(item["lon"])
+                    except (KeyError, ValueError, TypeError):
+                        continue
+                    address = item.get("address", {})
+                    city = (
+                        address.get("city") or address.get("town")
+                        or address.get("village") or address.get("hamlet")
+                        or address.get("county")
+                    )
+                    state = address.get("state")
+                    if city and state:
+                        display_name = f"{city}, {_state_abbreviation(state)}"
+                    else:
+                        display_name = item.get("display_name", clean_query).split(",")[0]
+                    if display_name.lower() not in seen_names:
+                        suggestions.append({"display_name": display_name, "lat": lat, "lon": lon})
+                        seen_names.add(display_name.lower())
+            else:
+                logger.warning(f"Nominatim suggestion lookup returned status {response.status_code} for '{clean_query}'")
+        except Exception as e:
+            logger.warning(f"Nominatim suggestion lookup failed for '{clean_query}': {e}")
+
+    return suggestions
 
 
 def interpolate_position_along_path(path, target_distance_miles):

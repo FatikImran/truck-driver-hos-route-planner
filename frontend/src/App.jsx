@@ -13,6 +13,168 @@ const ROUTE_LOADING_MESSAGES = [
   'Finalizing the trip plan...'
 ];
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const SUGGESTION_DEBOUNCE_MS = 350;
+const SUGGESTION_MIN_CHARS = 2;
+
+// ============================================
+// LOCATION AUTOCOMPLETE INPUT
+// ============================================
+// A text input backed by /api/geocode-suggest. Suggestions are debounced,
+// stale responses are discarded (in case an earlier request resolves after
+// a later one), and the field still accepts free-typed text that was never
+// selected from the list — the backend's own geocoder can fall back to
+// Nominatim/local-DB matching for anything typed but not picked.
+function LocationAutocomplete({ label, value, onChange, iconColor, placeholder, required, invalid }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+
+  const wrapperRef = useRef(null);
+  const debounceRef = useRef(null);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    // Cleanup any pending debounce timer on unmount
+    return () => clearTimeout(debounceRef.current);
+  }, []);
+
+  const fetchSuggestions = (query) => {
+    clearTimeout(debounceRef.current);
+
+    const trimmed = (query || '').trim();
+    if (trimmed.length < SUGGESTION_MIN_CHARS) {
+      setSuggestions([]);
+      setIsLoading(false);
+      setFetchError(false);
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      const thisRequestId = ++requestIdRef.current;
+      setIsLoading(true);
+      setFetchError(false);
+      try {
+        const res = await fetch(`${API_URL}/api/geocode-suggest?q=${encodeURIComponent(trimmed)}`);
+        if (thisRequestId !== requestIdRef.current) return; // a newer request has since started
+        if (!res.ok) {
+          throw new Error(`Suggestion request failed with status ${res.status}`);
+        }
+        const data = await res.json();
+        setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+      } catch (err) {
+        if (thisRequestId === requestIdRef.current) {
+          setSuggestions([]);
+          setFetchError(true);
+        }
+      } finally {
+        if (thisRequestId === requestIdRef.current) {
+          setIsLoading(false);
+        }
+      }
+    }, SUGGESTION_DEBOUNCE_MS);
+  };
+
+  const handleChange = (e) => {
+    const newVal = e.target.value;
+    onChange(newVal);
+    setIsOpen(true);
+    setHighlightedIndex(-1);
+    fetchSuggestions(newVal);
+  };
+
+  const selectSuggestion = (suggestion) => {
+    onChange(suggestion.display_name);
+    setSuggestions([]);
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+  };
+
+  const handleKeyDown = (e) => {
+    if (!isOpen || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev + 1) % suggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === 'Enter') {
+      if (highlightedIndex >= 0 && highlightedIndex < suggestions.length) {
+        e.preventDefault();
+        selectSuggestion(suggestions[highlightedIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setIsOpen(false);
+    }
+  };
+
+  const showDropdown = isOpen && (suggestions.length > 0 || isLoading || (fetchError && value.trim().length >= SUGGESTION_MIN_CHARS));
+
+  return (
+    <div>
+      <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+        {label}{required && <span style={{ color: 'var(--color-rose)' }}> *</span>}
+      </label>
+      <div ref={wrapperRef} style={{ position: 'relative' }}>
+        <MapPin size={16} style={{ position: 'absolute', left: '12px', top: '12px', color: iconColor }} />
+        <input
+          type="text"
+          value={value}
+          onChange={handleChange}
+          onFocus={() => { setIsOpen(true); fetchSuggestions(value); }}
+          onKeyDown={handleKeyDown}
+          className={`glass-input ${invalid ? 'input-invalid' : ''}`}
+          style={{ paddingLeft: '36px', paddingRight: isLoading ? '34px' : undefined }}
+          placeholder={placeholder}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-autocomplete="list"
+          aria-invalid={!!invalid}
+        />
+        {isLoading && (
+          <RefreshCw className="animate-spin autocomplete-spinner" size={14} />
+        )}
+        {showDropdown && (
+          <ul className="autocomplete-dropdown">
+            {suggestions.map((s, idx) => (
+              <li
+                key={`${s.display_name}-${idx}`}
+                className={`autocomplete-item ${idx === highlightedIndex ? 'highlighted' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
+                onMouseEnter={() => setHighlightedIndex(idx)}
+              >
+                <MapPin size={12} style={{ flexShrink: 0, opacity: 0.6 }} />
+                <span>{s.display_name}</span>
+              </li>
+            ))}
+            {suggestions.length === 0 && isLoading && (
+              <li className="autocomplete-item autocomplete-status">Searching...</li>
+            )}
+            {suggestions.length === 0 && !isLoading && fetchError && (
+              <li className="autocomplete-item autocomplete-status">
+                Couldn't load suggestions — you can still type the full location manually.
+              </li>
+            )}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   // ============================================
   // THEME STATE
@@ -375,35 +537,70 @@ function App() {
   // ============================================
   // HANDLE SUBMIT
   // ============================================
+  // A location is rejected if it's empty, absurdly long, or contains no
+  // letters at all (e.g. someone typing only digits or punctuation) —
+  // beyond that we defer to the backend's geocoder, which already tolerates
+  // free-typed text via a Nominatim fallback, so we don't force a rigid
+  // "City, ST" format on the user.
+  const validateLocationField = (value, label) => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) return `${label} is required.`;
+    if (trimmed.length > 200) return `${label} is too long (max 200 characters).`;
+    if (!/[a-zA-Z]/.test(trimmed)) return `${label} doesn't look like a real place — please enter a city name.`;
+    return '';
+  };
+
+  const validateForm = () => {
+    const errors = {
+      currentLocation: validateLocationField(currentLocation, 'Current location'),
+      pickupLocation: validateLocationField(pickupLocation, 'Pickup location'),
+      dropoffLocation: validateLocationField(dropoffLocation, 'Dropoff location'),
+    };
+
+    const cycleNum = Number(cycleUsed);
+    if (cycleUsed === '' || Number.isNaN(cycleNum)) {
+      errors.cycleUsed = 'Cycle hours used must be a number.';
+    } else if (cycleNum < 0 || cycleNum > 70) {
+      errors.cycleUsed = 'Cycle hours used must be between 0 and 70.';
+    }
+
+    const speedNum = Number(speedMph);
+    if (speedMph === '' || Number.isNaN(speedNum)) {
+      errors.speedMph = 'Speed must be a number.';
+    } else if (speedNum < 20 || speedNum > 85) {
+      errors.speedMph = 'Speed must be between 20 and 85 mph.';
+    }
+
+    if (!startTime || Number.isNaN(new Date(startTime).getTime())) {
+      errors.startTime = 'Please provide a valid trip start date and time.';
+    }
+
+    return errors;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
-    
+
+    const errors = validateForm();
+    const hasErrors = Object.values(errors).some(Boolean);
+    setFieldErrors(errors);
+
+    if (hasErrors) {
+      setError('Please fix the highlighted fields before calculating the route.');
+      return;
+    }
+
+    setLoading(true);
     // Cleanup previous truck
     cleanupTruck();
 
-    if (!currentLocation.trim() || !pickupLocation.trim() || !dropoffLocation.trim()) {
-      setError('Please provide current location, pickup, and dropoff locations.');
-      setLoading(false);
-      return;
-    }
-
-    if (isNaN(cycleUsed) || cycleUsed < 0 || cycleUsed > 70) {
-      setError('Hours used in current cycle must be a number between 0 and 70.');
-      setLoading(false);
-      return;
-    }
-
-    if (isNaN(speedMph) || speedMph < 20 || speedMph > 85) {
-      setError('Average driving speed must be a number between 20 and 85 mph.');
-      setLoading(false);
-      return;
-    }
+    // Abort the request if the backend hangs for too long, so the loading
+    // animation doesn't spin forever with no feedback.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
       const response = await fetch(`${API_URL}/api/route`, {
         method: 'POST',
         headers: {
@@ -421,21 +618,35 @@ function App() {
           home_terminal: homeTerminal,
           truck_trailer: truckTrailer
         }),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        throw new Error(`Server returned an unexpected response (status ${response.status}). Please try again.`);
+      }
 
-      if (data.success) {
+      if (response.ok && data.success) {
         setResult(data);
         setSelectedDayIndex(0);
         setActiveTab('map');
       } else {
-        setError(data.error || 'Failed to simulate route and logs.');
+        setError(data.error || `Failed to simulate route and logs (status ${response.status}).`);
       }
     } catch (err) {
-      setError('Could not connect to Django backend server. Please verify Django is running.');
+      if (err.name === 'AbortError') {
+        setError('The route request took too long and was cancelled. Please try again — this can happen with a slow connection or a distant route.');
+      } else if (err instanceof TypeError) {
+        // fetch() throws a TypeError for network-level failures (server down, CORS, offline, etc.)
+        setError('Could not connect to the backend server. Please verify it is running and reachable.');
+      } else {
+        setError(err.message || 'An unexpected error occurred while planning the route.');
+      }
       console.error(err);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -520,50 +731,44 @@ function App() {
             Trip Configuration
           </h2>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} noValidate>
             <div>
-              <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Current Location</label>
-              <div style={{ position: 'relative' }}>
-                <MapPin size={16} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--color-rose)' }} />
-                <input
-                  type="text"
-                  value={currentLocation}
-                  onChange={(e) => setCurrentLocation(e.target.value)}
-                  className="glass-input"
-                  style={{ paddingLeft: '36px' }}
-                  placeholder="City, State"
-                />
-              </div>
+              <LocationAutocomplete
+                label="Current Location"
+                value={currentLocation}
+                onChange={(val) => { setCurrentLocation(val); setFieldErrors((prev) => ({ ...prev, currentLocation: '' })); }}
+                iconColor="var(--color-rose)"
+                placeholder="e.g. Dallas, TX"
+                required
+                invalid={!!fieldErrors.currentLocation}
+              />
+              {fieldErrors.currentLocation && <p className="field-error">{fieldErrors.currentLocation}</p>}
             </div>
 
             <div>
-              <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Pickup Location</label>
-              <div style={{ position: 'relative' }}>
-                <MapPin size={16} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--color-emerald)' }} />
-                <input
-                  type="text"
-                  value={pickupLocation}
-                  onChange={(e) => setPickupLocation(e.target.value)}
-                  className="glass-input"
-                  style={{ paddingLeft: '36px' }}
-                  placeholder="City, State"
-                />
-              </div>
+              <LocationAutocomplete
+                label="Pickup Location"
+                value={pickupLocation}
+                onChange={(val) => { setPickupLocation(val); setFieldErrors((prev) => ({ ...prev, pickupLocation: '' })); }}
+                iconColor="var(--color-emerald)"
+                placeholder="e.g. El Paso, TX"
+                required
+                invalid={!!fieldErrors.pickupLocation}
+              />
+              {fieldErrors.pickupLocation && <p className="field-error">{fieldErrors.pickupLocation}</p>}
             </div>
 
             <div>
-              <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Dropoff Location</label>
-              <div style={{ position: 'relative' }}>
-                <MapPin size={16} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--color-blue)' }} />
-                <input
-                  type="text"
-                  value={dropoffLocation}
-                  onChange={(e) => setDropoffLocation(e.target.value)}
-                  className="glass-input"
-                  style={{ paddingLeft: '36px' }}
-                  placeholder="City, State"
-                />
-              </div>
+              <LocationAutocomplete
+                label="Dropoff Location"
+                value={dropoffLocation}
+                onChange={(val) => { setDropoffLocation(val); setFieldErrors((prev) => ({ ...prev, dropoffLocation: '' })); }}
+                iconColor="var(--color-blue)"
+                placeholder="e.g. Los Angeles, CA"
+                required
+                invalid={!!fieldErrors.dropoffLocation}
+              />
+              {fieldErrors.dropoffLocation && <p className="field-error">{fieldErrors.dropoffLocation}</p>}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -577,11 +782,13 @@ function App() {
                     min="0"
                     max="70"
                     value={cycleUsed}
-                    onChange={(e) => setCycleUsed(e.target.value)}
-                    className="glass-input"
+                    onChange={(e) => { setCycleUsed(e.target.value); setFieldErrors((prev) => ({ ...prev, cycleUsed: '' })); }}
+                    className={`glass-input ${fieldErrors.cycleUsed ? 'input-invalid' : ''}`}
                     style={{ paddingLeft: '36px' }}
+                    aria-invalid={!!fieldErrors.cycleUsed}
                   />
                 </div>
+                {fieldErrors.cycleUsed && <p className="field-error">{fieldErrors.cycleUsed}</p>}
               </div>
 
               <div>
@@ -593,11 +800,13 @@ function App() {
                     min="20"
                     max="85"
                     value={speedMph}
-                    onChange={(e) => setSpeedMph(e.target.value)}
-                    className="glass-input"
+                    onChange={(e) => { setSpeedMph(e.target.value); setFieldErrors((prev) => ({ ...prev, speedMph: '' })); }}
+                    className={`glass-input ${fieldErrors.speedMph ? 'input-invalid' : ''}`}
                     style={{ paddingLeft: '36px' }}
+                    aria-invalid={!!fieldErrors.speedMph}
                   />
                 </div>
+                {fieldErrors.speedMph && <p className="field-error">{fieldErrors.speedMph}</p>}
               </div>
             </div>
 
@@ -608,11 +817,13 @@ function App() {
                 <input
                   type="datetime-local"
                   value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="glass-input"
+                  onChange={(e) => { setStartTime(e.target.value); setFieldErrors((prev) => ({ ...prev, startTime: '' })); }}
+                  className={`glass-input ${fieldErrors.startTime ? 'input-invalid' : ''}`}
                   style={{ paddingLeft: '36px' }}
+                  aria-invalid={!!fieldErrors.startTime}
                 />
               </div>
+              {fieldErrors.startTime && <p className="field-error">{fieldErrors.startTime}</p>}
             </div>
 
             <details style={{ marginTop: '4px' }}>

@@ -7,7 +7,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.utils.dateparse import parse_datetime
 
-from .routing_helper import geocode_location, get_route_details, reverse_geocode, interpolate_position_along_path
+from .routing_helper import (
+    geocode_location, get_route_details, reverse_geocode,
+    interpolate_position_along_path, search_location_suggestions,
+)
 from .hos_engine import run_trip_simulation, partition_activities_into_days
 from .log_drawer import draw_daily_log
 
@@ -18,8 +21,31 @@ def api_root(request):
         "message": "API is working!",
         "endpoints": {
             "route_planner": "/api/route",
+            "geocode_suggest": "/api/geocode-suggest",
         }
     })
+
+
+def geocode_suggest(request):
+    """
+    Endpoint: GET /api/geocode-suggest?q=<partial location text>
+    Returns a small list of matching "City, ST" suggestions for a
+    search-as-you-type location input. Always returns a 200 with a
+    (possibly empty) list rather than erroring, since "no matches yet"
+    is a normal state for an autocomplete field, not a failure.
+    """
+    query = request.GET.get("q", "")
+
+    if not isinstance(query, str) or len(query.strip()) < 2:
+        return JsonResponse({"success": True, "suggestions": []})
+
+    try:
+        suggestions = search_location_suggestions(query, limit=6)
+    except Exception as e:
+        logger.warning(f"geocode_suggest failed for query '{query}': {e}")
+        suggestions = []
+
+    return JsonResponse({"success": True, "suggestions": suggestions})
 
 
 def resolve_stop_location(desc, status, running_driving_miles, leg1, leg2,
@@ -78,6 +104,22 @@ def resolve_stop_location(desc, status, running_driving_miles, leg1, leg2,
 def route_planner(request):
     """
     Endpoint: POST /api/route
+    Thin wrapper around `_route_planner_impl` that guarantees the client
+    always gets a JSON response — including for any unexpected error that
+    isn't already caught below — instead of Django's default HTML error page.
+    """
+    try:
+        return _route_planner_impl(request)
+    except Exception as e:
+        logger.exception("Unhandled error in route_planner")
+        return JsonResponse({
+            "success": False,
+            "error": "An unexpected server error occurred while planning the route. Please try again."
+        }, status=500)
+
+
+def _route_planner_impl(request):
+    """
     Takes trip locations, current cycle used, speed, and carrier information.
     Validates inputs, plans route, simulates HOS, draws daily logs, and returns results.
     """
@@ -90,15 +132,26 @@ def route_planner(request):
         }, status=400)
 
     # --- Input Validation ---
-    current_loc = data.get("current_location", "").strip()
-    pickup_loc = data.get("pickup_location", "").strip()
-    dropoff_loc = data.get("dropoff_location", "").strip()
+    current_loc = str(data.get("current_location", "")).strip()
+    pickup_loc = str(data.get("pickup_location", "")).strip()
+    dropoff_loc = str(data.get("dropoff_location", "")).strip()
 
     if not current_loc or not pickup_loc or not dropoff_loc:
         return JsonResponse({
             "success": False,
             "error": "Current location, pickup location, and dropoff location are all required fields."
         }, status=400)
+
+    for field_name, value in (
+        ("Current location", current_loc),
+        ("Pickup location", pickup_loc),
+        ("Dropoff location", dropoff_loc),
+    ):
+        if len(value) > 200:
+            return JsonResponse({
+                "success": False,
+                "error": f"{field_name} is too long (max 200 characters)."
+            }, status=400)
 
     # Cycle Used hours validation
     try:
@@ -150,12 +203,17 @@ def route_planner(request):
         except:
             pass
 
-    # Carrier Details (optional with defaults)
+    # Carrier Details (optional with defaults, capped in length to prevent
+    # abuse and to keep them from overflowing the log sheet layout)
+    def _clean_carrier_field(raw, default, max_len=120):
+        value = str(raw or "").strip()[:max_len]
+        return value or default
+
     carrier_info = {
-        "carrier_name": data.get("carrier_name", "").strip() or "Spotter Logistics LLC",
-        "main_office": data.get("main_office", "").strip() or "123 Main St, Dallas, TX",
-        "home_terminal": data.get("home_terminal", "").strip() or "456 Safety Rd, Dallas, TX",
-        "truck_trailer": data.get("truck_trailer", "").strip() or "Truck #101 / Trailer #202"
+        "carrier_name": _clean_carrier_field(data.get("carrier_name"), "Spotter Logistics LLC"),
+        "main_office": _clean_carrier_field(data.get("main_office"), "123 Main St, Dallas, TX"),
+        "home_terminal": _clean_carrier_field(data.get("home_terminal"), "456 Safety Rd, Dallas, TX"),
+        "truck_trailer": _clean_carrier_field(data.get("truck_trailer"), "Truck #101 / Trailer #202"),
     }
 
     # --- Geocoding & Routing ---
