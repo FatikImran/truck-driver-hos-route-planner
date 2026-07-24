@@ -164,7 +164,7 @@ def draw_daily_log(day_activities, date_obj, carrier_info, from_loc, to_loc, tot
         font_normal = get_font(9)
         font_small = get_font(7)
         font_xsmall = get_font(6)
-        font_remark = get_font(5)  # Very small for remarks
+        font_remark = get_font(7)  # Very small for remarks
         
         # Also get a bold version for the totals
         font_bold = get_font(10, bold=True)
